@@ -36,8 +36,8 @@
 
 | ระบบของหน่วยงาน | ใช้แบบ |
 |---|---|
-| เครื่อง Linux หรือ VM (on-premise, VMware, Hyper-V, VM บน cloud ใดก็ได้) | **3A** systemd + nginx |
-| มี Docker หรือแพลตฟอร์ม container (Kubernetes, OpenShift, บริการ container ของ cloud) | **3B** Docker |
+| มี Docker / Podman หรือแพลตฟอร์ม container (Kubernetes, OpenShift, บริการ container ของ cloud) | **3B** container (แนะนำ: มี image สำเร็จรูป) |
+| เครื่อง Linux หรือ VM (on-premise, VMware, Hyper-V, VM บน cloud ใดก็ได้) ที่ไม่ใช้ container | **3A** systemd + nginx |
 | Windows Server | **3C** Node.js เป็น Windows service + IIS |
 
 ทุกแบบใช้ค่าตั้งเดียวกันใน `.env` (ข้อ 10) และต้องตั้ง `SITE_URL` ก่อน build
@@ -82,18 +82,55 @@ sudo ln -s /etc/nginx/sites-available/sao-welfare /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
-### 3B. Docker / แพลตฟอร์ม container
+### 3B. Container (Docker / Podman / Kubernetes / OpenShift / บริการ container ของ cloud)
+
+**ทางที่ 1 — ใช้ image สำเร็จรูป (ง่ายที่สุด ไม่ต้อง build เอง)**
+
+ไฟล์ `sao-welfare-image-<วันที่>-amd64.tar.gz` (เครื่อง x86_64) ผู้พัฒนาส่งให้ ใช้ได้กับทุกโดเมน ตั้งโดเมนตอนรัน:
+
+```bash
+# 1) นำ image เข้าเครื่อง
+docker load -i sao-welfare-image-2569-11-24-amd64.tar.gz          # ได้ image ชื่อ sao-welfare:2569.11.24
+
+# 2) โฟลเดอร์ข้อมูลถาวร (container รันด้วย uid 1000) แล้ววาง data/ ที่ได้รับ (emdash.db + uploads/) ลงไป
+sudo mkdir -p /srv/sao-welfare/data /srv/sao-welfare/backups
+sudo chown -R 1000:1000 /srv/sao-welfare
+
+# 3) สร้างกุญแจเข้ารหัส (ครั้งเดียว เก็บสำรองไว้ที่ปลอดภัย)
+docker run --rm sao-welfare:2569.11.24 ./node_modules/.bin/emdash secrets generate
+
+# 4) รัน (แก้โดเมนและกุญแจ)
+docker run -d --name sao-welfare --restart unless-stopped \
+  -p 127.0.0.1:4321:4321 \
+  -e SITE_URL=https://welfare.example.go.th \
+  -e EMDASH_SITE_URL=https://welfare.example.go.th \
+  -e EMDASH_ENCRYPTION_KEY=emdash_enc_v1_xxxxxxxx \
+  -e SHOP_PAYMENT_MODE=live \
+  -v /srv/sao-welfare/data:/app/data \
+  -v /srv/sao-welfare/backups:/app/backups \
+  sao-welfare:2569.11.24
+
+docker logs -f sao-welfare        # ต้องเห็น "Server listening on http://0.0.0.0:4321"
+```
+
+ค่าอื่นใน `.env.example` ส่งเป็น `-e NAME=value` เพิ่มได้ (หรือ `--env-file`) · ใช้ Podman ได้ด้วยคำสั่งเดียวกัน (`podman load` / `podman run`)
+
+**ทางที่ 2 — build เอง จากซอร์สโค้ด**
 
 ```bash
 cp .env.example .env && nano .env
 docker compose up -d --build       # ข้อมูลอยู่ที่ ./data และ ./backups บนเครื่อง
 ```
+หรือ `docker build -t sao-welfare .` (image ใช้ได้ทุกโดเมนเหมือนทางที่ 1) · รู้โดเมนแล้ว: `docker build --build-arg SITE_URL=https://โดเมนจริง --build-arg ALLOWED_HOSTS= -t sao-welfare .` (จำกัดเฉพาะโดเมนนั้น + ย่อรูปอัตโนมัติ)
 
-บน Kubernetes / OpenShift / บริการ container ของ cloud ให้ build image จาก `Dockerfile` (`--build-arg SITE_URL=https://โดเมนจริง`) แล้ว:
-- ต่อ **persistent volume** ที่ `/app/data` (และ `/app/backups`) — ไม่มี volume ข้อมูลจะหายทุกครั้งที่ container ถูกสร้างใหม่
+**ข้อบังคับเมื่อใช้ container (ทุกแพลตฟอร์ม)**
+- ต่อ **persistent volume** ที่ `/app/data` (และ `/app/backups`) — ไม่มี volume ข้อมูลจะหายทุกครั้งที่ container ถูกสร้างใหม่ · volume ต้องเป็น block storage ไม่ใช่ NFS/SMB
 - ตั้ง **replicas = 1** เสมอ (SQLite รองรับ process เดียว) และให้ทำงานตลอด (ไม่ scale to zero)
-- ส่งค่าใน `.env` เป็น environment variables / secrets ของแพลตฟอร์ม
-- ingress / load balancer ต้องส่ง header ตามหัวข้อ "reverse proxy" ด้านล่าง
+- ingress / load balancer ต้องส่ง header ตามหัวข้อ "reverse proxy" ด้านล่าง — image สำเร็จรูปเชื่อชื่อโดเมนที่ proxy ส่งมา จึงต้องให้ proxy เป็นผู้กำหนด `Host` / `X-Forwarded-Host` เอง (ไม่ส่งต่อค่าที่ผู้ใช้ส่งมา)
+- image มี healthcheck ในตัว (เรียกหน้าแรกทุก 30 วินาที)
+- สำรองข้อมูล: `docker exec sao-welfare node scripts/backup.mjs` (ไฟล์อยู่ใน `/srv/sao-welfare/backups`)
+- ลิงก์เข้าหลังบ้าน (ข้อ 6): `docker exec sao-welfare node scripts/admin-login-link.mjs <email>`
+- อัปเดตเวอร์ชัน: `docker load` image ใหม่ → `docker rm -f sao-welfare` → `docker run` ด้วยคำสั่งเดิมและ tag ใหม่ (ข้อมูลอยู่ใน volume ไม่หาย)
 
 ### 3C. Windows Server
 
@@ -134,7 +171,7 @@ docker compose up -d --build       # ข้อมูลอยู่ที่ ./d
 npm run admin-link -- --list               # ดูรายชื่อผู้ดูแล
 npm run admin-link -- admin@example.com    # ได้ลิงก์ใช้ได้ครั้งเดียวภายใน 15 นาที
 ```
-(แบบ Docker: `docker compose exec web node scripts/admin-login-link.mjs admin@example.com`)
+(แบบ container: `docker exec sao-welfare node scripts/admin-login-link.mjs admin@example.com` หรือ `docker compose exec web …`)
 
 ส่งลิงก์ให้เจ้าของบัญชี → เปิดแล้วกด **Continue** → ไปที่ **Settings → Security → Register Passkey** เพื่อสร้าง passkey ของโดเมนใหม่
 
@@ -145,7 +182,7 @@ npm run admin-link -- admin@example.com    # ได้ลิงก์ใช้�
 ```bash
 npm run backup        # สร้าง backups/<วันที่_เวลา>/emdash.db + uploads/ เก็บ 14 ชุดล่าสุด (BACKUP_KEEP)
 ```
-ตั้งให้ทำทุกวัน เช่น crontab ของผู้ใช้ saoweb (Windows: Task Scheduler · Docker: `docker compose exec web node scripts/backup.mjs`):
+ตั้งให้ทำทุกวัน เช่น crontab ของผู้ใช้ saoweb (Windows: Task Scheduler · container: `docker exec sao-welfare node scripts/backup.mjs`):
 ```
 30 2 * * *  cd /opt/sao-welfare && /usr/bin/node --env-file=.env scripts/backup.mjs >> backups/backup.log 2>&1
 ```
@@ -166,7 +203,7 @@ npm ci && npm run build
 exit
 sudo systemctl start sao-welfare
 ```
-แบบ Docker: `npm run backup` (ผ่าน exec) แล้ว `git pull && docker compose up -d --build`
+แบบ container: สำรองข้อมูล (ผ่าน `docker exec`) แล้วโหลด image ใหม่และรัน container ใหม่ตามข้อ 3B (หรือ `git pull && docker compose up -d --build`)
 
 ระบบปรับโครงสร้างฐานข้อมูลให้เองตอนเริ่ม
 

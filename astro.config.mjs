@@ -41,12 +41,16 @@ export default defineConfig({
 		// Behind the IT reverse proxy, Astro only trusts the public host (Host / X-Forwarded-Host) when it is
 		// listed here; otherwise every request looks like "localhost" and form posts fail the origin checks.
 		// Built from SITE_URL (the public address) + ALLOWED_HOSTS (extra hostnames, comma-separated) at build time.
+		// ALLOWED_HOSTS=* (the ready-made container image) trusts the host the reverse proxy sends, so one image
+		// works for any domain; the proxy must then set Host / X-Forwarded-Host itself (docs/self-hosting.md).
 		security: {
-			allowedDomains: [process.env.EMDASH_SITE_URL || process.env.SITE_URL, ...(process.env.ALLOWED_HOSTS || "").split(",")]
-				.map((v) => String(v || "").trim())
-				.filter(Boolean)
-				.map((v) => (v.includes("://") ? new URL(v) : { hostname: v }))
-				.map((u) => (u.protocol ? { hostname: u.hostname, protocol: u.protocol.replace(":", "") } : { hostname: u.hostname })),
+			allowedDomains: (process.env.ALLOWED_HOSTS || "").split(",").some((v) => v.trim() === "*")
+				? [{}]
+				: [process.env.EMDASH_SITE_URL || process.env.SITE_URL, ...(process.env.ALLOWED_HOSTS || "").split(",")]
+						.map((v) => String(v || "").trim())
+						.filter(Boolean)
+						.map((v) => (v.includes("://") ? new URL(v) : { hostname: v }))
+						.map((u) => (u.protocol ? { hostname: u.hostname, protocol: u.protocol.replace(":", "") } : { hostname: u.hostname })),
 		},
 		// Sign-in sessions (EmDash admin) kept with the other data, so a rebuild/redeploy doesn't sign everyone out
 		session: { driver: sessionDrivers.fsLite({ base: resolve(process.env.SESSIONS_DIR || "./data/sessions") }) },
