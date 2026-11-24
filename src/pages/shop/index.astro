@@ -1,0 +1,260 @@
+---
+import { getEmDashCollection } from "emdash";
+import Base from "../../layouts/Base.astro";
+import ProductGrid from "../../components/ProductGrid.astro";
+import { OTHER_CATEGORY } from "../../utils/shop";
+import { getShopContact, getShopSettings } from "../../utils/shop-contact";
+// @ts-ignore -- plain JS module shared with the shop API
+import { HOURS_DEFAULTS, shopStatus } from "../../shop/hours.js";
+
+// ข้อมูลติดต่อร้าน (ตั้งในหลังบ้านร้าน → ตั้งค่า)
+const contactLines = (await getShopContact()).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+
+// สถานะเปิด/ปิดร้านวันนี้ (ตั้งในหลังบ้านร้าน → ตั้งค่า → "เวลาเปิด-ปิดร้าน")
+const status = shopStatus(await getShopSettings(Object.keys(HOURS_DEFAULTS)));
+Astro.response.headers.set("Cache-Control", "no-store");
+
+// A welfare shop carries tens of items, not thousands: load them all and filter here
+const { entries: everything, cacheHint } = await getEmDashCollection("products", {
+	orderBy: { published_at: "desc" },
+	limit: 500,
+});
+// สินค้าสวัสดิการเดิมขายจากหน้า "อื่นๆ" เท่านั้น
+const all = everything.filter((p) => p.data.category?.trim() !== OTHER_CATEGORY);
+if (Astro.cache?.enabled) Astro.cache.set(cacheHint);
+
+// Categories follow the shop's own posters; any new category an editor adds goes after these, alphabetically
+const CATEGORY_ORDER = [
+	"เซ็ตสุดคุ้ม",
+	"เหรียญที่ระลึก",
+	"ชุดปฏิบัติการ",
+	"เสื้อโปโลและเสื้อเชิ้ต",
+	"พระพุทธรูป",
+	"เข็มกลัดและตราสัญลักษณ์",
+	"เนคไท",
+	"ของใช้และของที่ระลึก",
+];
+const rank = (c: string) => {
+	const i = CATEGORY_ORDER.indexOf(c);
+	return i === -1 ? CATEGORY_ORDER.length : i;
+};
+const categories = [...new Set(all.map((p) => p.data.category?.trim()).filter(Boolean))].sort(
+	(a, b) => rank(a!) - rank(b!) || a!.localeCompare(b!, "th"),
+) as string[];
+const current = Astro.url.searchParams.get("category") ?? "";
+const products = current ? all.filter((p) => p.data.category?.trim() === current) : all;
+---
+
+<Base title="ร้านค้าสวัสดิการ" description="สินค้าสวัสดิการสำหรับบุคลากร สตง.">
+	<header class="band intro">
+		<div class="frame shop__head">
+			<div>
+				<h1 class="shop__title">ร้านค้าสวัสดิการ</h1>
+				<p class="shop__subtitle">สินค้าสวัสดิการสำหรับบุคลากร สตง.</p>
+				<div class:list={["shop__status", status.open ? "is-open" : "is-closed"]} role="status">
+					<span class="shop__status-pill"><span class="shop__status-dot" aria-hidden="true"></span>{status.open ? "หน้าร้านเปิด" : "หน้าร้านปิด"}</span>
+					<span class="shop__status-text">
+						{status.detail}
+						{status.note && <> · {status.note}</>}
+					</span>
+					<span class="shop__status-hours">เวลาทำการ {status.hoursLabel}</span>
+					{!status.open && (
+						<p class="shop__status-online">
+							<b>ยังสั่งซื้อสินค้าทางออนไลน์ได้ตามปกติ</b> แม้หน้าร้านปิด · รับที่ส่วนกลาง: มารับสินค้าได้ในวันทำการถัดไป · ส่วนภูมิภาค: จัดส่งสินค้าในวันทำการถัดไป
+						</p>
+					)}
+				</div>
+			</div>
+			{
+				contactLines.length > 0 && (
+					<aside class="shop__contact" aria-label="ติดต่อร้านค้าสวัสดิการ">
+						<p class="shop__contact-title">
+							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.83 16.57a1 1 0 0 0 1.21-.3l.36-.47A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.47.35a1 1 0 0 0-.29 1.23 14 14 0 0 0 6.39 6.39"></path></svg>
+							ติดต่อร้านค้าสวัสดิการ
+						</p>
+						{contactLines.map((line) => (
+							<p class="shop__contact-line">{line}</p>
+						))}
+					</aside>
+				)
+			}
+		</div>
+	</header>
+
+	<section class="band section">
+		<div class="frame">
+			{
+				categories.length > 0 && (
+					<nav class="shop__cats" aria-label="หมวดหมู่สินค้า">
+						<a href="/shop" class="chip" aria-current={current ? undefined : "page"}>
+							ทั้งหมด
+						</a>
+						{categories.map((c) => (
+							<a
+								href={`/shop?category=${encodeURIComponent(c)}`}
+								class="chip"
+								aria-current={c === current ? "page" : undefined}
+							>
+								{c}
+							</a>
+						))}
+					</nav>
+				)
+			}
+			{
+				products.length > 0 ? (
+					<ProductGrid products={products} />
+				) : (
+					<div class="empty-state">
+						<h2 class="empty-state__title">ยังไม่มีสินค้า</h2>
+						<p class="empty-state__text">เพิ่มสินค้าได้ที่หลังบ้าน เมนู “สินค้า”</p>
+					</div>
+				)
+			}
+		</div>
+	</section>
+</Base>
+
+<style>
+	.shop__title {
+		font-size: var(--font-size-display);
+		font-weight: 700;
+		color: var(--color-navy);
+	}
+
+	.shop__subtitle {
+		margin-top: var(--spacing-2);
+		font-size: var(--font-size-lg);
+		color: var(--color-text-secondary);
+	}
+
+	/* ชื่อหน้าซ้าย กล่องติดต่อขวา (จอแคบเรียงลง) */
+	.shop__head {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: flex-end;
+		justify-content: space-between;
+		gap: var(--spacing-6);
+	}
+
+	.shop__status {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--spacing-1) var(--spacing-3);
+		margin-top: var(--spacing-4);
+	}
+
+	.shop__status-pill {
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+		padding: 4px 14px;
+		border-radius: var(--radius-full);
+		font-weight: 700;
+		color: #fff;
+	}
+
+	.shop__status.is-open .shop__status-pill {
+		background: #15803d;
+	}
+
+	.shop__status.is-closed .shop__status-pill {
+		background: #b91c1c;
+	}
+
+	.shop__status-dot {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background: #fff;
+	}
+
+	.shop__status.is-open .shop__status-dot {
+		animation: shop-pulse 1.8s ease-in-out infinite;
+	}
+
+	@keyframes shop-pulse {
+		50% {
+			opacity: 0.35;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.shop__status-dot {
+			animation: none !important;
+		}
+	}
+
+	.shop__status-text {
+		font-weight: 600;
+		color: var(--color-text);
+	}
+
+	.shop__status-hours {
+		flex-basis: 100%;
+		font-size: var(--font-size-sm);
+		color: var(--color-text-secondary);
+	}
+
+	.shop__status-online {
+		flex-basis: 100%;
+		max-width: 620px;
+		margin: var(--spacing-1) 0 0;
+		padding: var(--spacing-2) var(--spacing-3);
+		border-left: 3px solid #15803d;
+		border-radius: var(--radius);
+		background: var(--color-surface);
+		font-size: var(--font-size-sm);
+		color: var(--color-text-secondary);
+	}
+
+	.shop__status-online b {
+		color: var(--color-text);
+	}
+
+	.shop__contact {
+		display: grid;
+		gap: 2px;
+		max-width: 440px;
+		padding: var(--spacing-4) var(--spacing-5);
+		border: 1px solid var(--color-border);
+		border-left: 4px solid var(--color-gold);
+		border-radius: var(--radius-lg);
+		background: var(--color-surface);
+		box-shadow: var(--shadow-card);
+	}
+
+	.shop__contact-title {
+		display: flex;
+		align-items: center;
+		gap: var(--spacing-2);
+		margin: 0 0 var(--spacing-1);
+		font-weight: 700;
+		color: var(--color-navy);
+	}
+
+	.shop__contact-title svg {
+		width: 18px;
+		height: 18px;
+		color: var(--color-gold-text, var(--color-navy));
+	}
+
+	.shop__contact-line {
+		margin: 0;
+		color: var(--color-text-secondary);
+	}
+
+	.shop__cats {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--spacing-2);
+		margin-bottom: var(--spacing-6);
+	}
+
+	.shop__cats .chip[aria-current] {
+		border-color: var(--color-navy);
+		background: var(--color-navy);
+		color: #fff;
+	}
+</style>

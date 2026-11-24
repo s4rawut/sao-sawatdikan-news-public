@@ -1,0 +1,147 @@
+---
+// หน้าแสดงเอกสาร PDF ก่อนดาวน์โหลด: วาดทุกหน้าด้วย PDF.js (ใช้ได้ทั้งมือถือและคอมพิวเตอร์ แม้เบราว์เซอร์ไม่มีตัวอ่าน PDF ในหน้าเว็บ)
+// พร้อมปุ่มดาวน์โหลด (ชื่อไฟล์เดิม) และเปิดในแท็บใหม่
+import { env } from "cloudflare:workers";
+import Base from "../../../layouts/Base.astro";
+import { PDF_KEY } from "../../../utils/documents";
+
+const key = Astro.params.key ?? "";
+if (!PDF_KEY.test(key)) return Astro.rewrite("/404");
+
+const media = await env.DB.prepare(
+	"SELECT filename, size FROM media WHERE storage_key = ? AND mime_type = 'application/pdf' AND status = 'ready'",
+)
+	.bind(key)
+	.first<{ filename: string; size: number | null }>();
+if (!media) return Astro.rewrite("/404");
+
+const title = media.filename.replace(/\.pdf$/i, "");
+const fileUrl = `/documents/${key}?raw=1`;
+const downloadUrl = `/documents/${key}?download=1`;
+const sizeLabel = media.size ? `${(media.size / 1024 / 1024).toFixed(media.size < 1024 * 1024 ? 2 : 1)} MB` : "";
+const back = Astro.request.headers.get("referer");
+const backUrl = back && new URL(back).origin === Astro.url.origin && !new URL(back).pathname.startsWith("/documents/") ? back : "/";
+---
+
+<Base title={title}>
+	<section class="band doc">
+		<div class="frame">
+			<div class="doc__bar">
+				<a class="doc__back" href={backUrl}>← ย้อนกลับ</a>
+				<h1 class="doc__title">{title}</h1>
+				<p class="doc__meta">เอกสาร PDF{sizeLabel && ` · ${sizeLabel}`} <span data-pages></span></p>
+				<div class="doc__actions">
+					<a class="btn doc__download" href={downloadUrl} download={media.filename}>
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M5 21h14"></path></svg>
+						ดาวน์โหลด PDF
+					</a>
+					<a class="doc__open" href={fileUrl} target="_blank" rel="noopener">เปิดในแท็บใหม่</a>
+				</div>
+			</div>
+
+			<div class="doc__viewer" data-pdf={fileUrl} aria-live="polite">
+				<p class="doc__status" data-status>กำลังโหลดเอกสาร…</p>
+			</div>
+			<p class="doc__fallback" data-fallback hidden>
+				แสดงตัวอย่างเอกสารไม่ได้ กรุณา <a href={downloadUrl}>ดาวน์โหลด</a> หรือ <a href={fileUrl} target="_blank" rel="noopener">เปิดในแท็บใหม่</a>
+			</p>
+		</div>
+	</section>
+</Base>
+
+<script>
+	import { renderPdf } from "../../../scripts/pdf-render";
+	const viewer = document.querySelector<HTMLElement>(".doc__viewer");
+	const status = document.querySelector<HTMLElement>("[data-status]");
+	const fallback = document.querySelector<HTMLElement>("[data-fallback]");
+	const pagesLabel = document.querySelector<HTMLElement>("[data-pages]");
+	if (viewer?.dataset.pdf) {
+		renderPdf(viewer.dataset.pdf, viewer)
+			.then((doc) => {
+				status?.remove();
+				if (pagesLabel) pagesLabel.textContent = `· ${doc.numPages} หน้า`;
+			})
+			.catch((err) => {
+				console.error("[pdf viewer]", err);
+				status?.remove();
+				if (fallback) fallback.hidden = false;
+			});
+	}
+</script>
+
+<style>
+	.doc {
+		padding-block: clamp(2rem, 1.5rem + 2vw, 3.5rem) clamp(3rem, 2rem + 4vw, 5rem);
+	}
+
+	.doc__bar {
+		display: grid;
+		gap: var(--spacing-2);
+		margin-bottom: var(--spacing-6);
+	}
+
+	.doc__back {
+		justify-self: start;
+		font-size: var(--font-size-sm);
+		color: var(--color-text-secondary);
+	}
+
+	.doc__title {
+		margin: 0;
+		font-size: var(--font-size-3xl);
+		font-weight: 700;
+		line-height: 1.35;
+		color: var(--color-navy);
+	}
+
+	.doc__meta {
+		margin: 0;
+		font-size: var(--font-size-sm);
+		color: var(--color-muted);
+	}
+
+	.doc__actions {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--spacing-4);
+		margin-top: var(--spacing-2);
+	}
+
+	.doc__download {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--spacing-2);
+	}
+
+	.doc__download svg {
+		width: 18px;
+		height: 18px;
+	}
+
+	.doc__open {
+		font-weight: 600;
+		color: var(--color-navy);
+	}
+
+	.doc__viewer {
+		display: grid;
+		gap: var(--spacing-4);
+		max-width: 900px;
+		margin-inline: auto;
+	}
+
+	.doc__status {
+		padding: var(--spacing-10) 0;
+		text-align: center;
+		color: var(--color-muted);
+	}
+
+	.doc__fallback {
+		padding: var(--spacing-6);
+		border-radius: var(--radius-xl);
+		background: var(--color-surface);
+		box-shadow: var(--shadow-card);
+		text-align: center;
+	}
+</style>

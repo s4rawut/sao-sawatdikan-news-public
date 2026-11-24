@@ -1,0 +1,70 @@
+---
+import { getEmDashCollection } from "emdash";
+import ProductGrid from "./ProductGrid.astro";
+import { OTHER_CATEGORY } from "../utils/shop";
+
+interface Props {
+	count?: number;
+	title?: string;
+}
+
+const { count = 5, title = "สินค้าสวัสดิการ" } = Astro.props;
+
+const { entries, cacheHint } = await getEmDashCollection("products", {
+	orderBy: { published_at: "desc" },
+	limit: count + 20,
+});
+// สินค้าสวัสดิการเดิมขายจากหน้า "อื่นๆ" เท่านั้น
+const products = entries.filter((p) => p.data.category?.trim() !== OTHER_CATEGORY).slice(0, count);
+if (Astro.cache?.enabled) Astro.cache.set(cacheHint);
+---
+
+{
+	products.length > 0 && (
+		<section class="band section products" aria-labelledby="products-title">
+			<div class="frame">
+				<div class="section-head">
+					<h2 id="products-title" class="products__title">{title}</h2>
+					<a href="/shop" class="arrow-link">
+						ดูสินค้าทั้งหมด
+						<svg
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="1.75"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							aria-hidden="true"
+						>
+							<path d="M5 12h14" />
+							<path d="m12 5 7 7-7 7" />
+						</svg>
+					</a>
+				</div>
+				<ProductGrid products={products} />
+			</div>
+		</section>
+	)
+}
+
+<style>
+	.products__title {
+		position: relative;
+		padding-inline-start: var(--spacing-4);
+		font-size: var(--font-size-3xl);
+		font-weight: 700;
+		color: var(--color-navy);
+	}
+
+	/* Gold bar in front of the heading, as on the news section */
+	.products__title::before {
+		content: "";
+		position: absolute;
+		inset-inline-start: 0;
+		top: 0.2em;
+		bottom: 0.2em;
+		width: 5px;
+		border-radius: 3px;
+		background: var(--color-gold);
+	}
+</style>

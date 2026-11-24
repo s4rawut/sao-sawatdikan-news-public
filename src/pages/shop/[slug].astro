@@ -1,0 +1,744 @@
+---
+import { getEmDashEntry, decodeSlug } from "emdash";
+import { Image } from "emdash/ui";
+import { env } from "cloudflare:workers";
+import Base from "../../layouts/Base.astro";
+import { baht, OTHER_CATEGORY } from "../../utils/shop";
+import OrderContact from "../../components/OrderContact.astro";
+import { getOthersContact } from "../../utils/others-contact";
+import { bangkokToday, isNewProduct, priceBundles, priceTiers, promoActive, promoRangeLabel } from "../../shop/pricing.js";
+
+const slug = decodeSlug(Astro.params.slug);
+if (!slug) return Astro.rewrite("/404");
+
+const { entry: product, cacheHint } = await getEmDashEntry("products", slug);
+if (!product) {
+	// สินค้าสวัสดิการเดิมย้ายไป collection legacy_products (/others/...): ลิงก์เก่ายังใช้ได้
+	const { entry: moved } = await getEmDashEntry("legacy_products", slug);
+	if (moved) return Astro.redirect(`/others/${encodeURIComponent(moved.id)}`, 301);
+	return Astro.rewrite("/404");
+}
+if (Astro.cache?.enabled) Astro.cache.set(cacheHint);
+
+const p = product.data;
+const stock = p.stock ?? 0;
+const today = bangkokToday();
+const onPromo = promoActive(p, today);
+const isNew = isNewProduct(p, today);
+// ราคาตามจำนวน (ขั้นบันได) — ตะกร้าใช้รายการนี้คำนวณ เซิร์ฟเวอร์คำนวณซ้ำตอนสั่งซื้อ
+const tiers = priceTiers(p);
+// ราคาแบบชุด เช่น 3 ชิ้น 100 บาท (ระบบจัดชุดให้ถูกที่สุดเองในตะกร้าและตอนสั่งซื้อ)
+const bundles = priceBundles(p);
+const unitLabel = p.unit || "ชิ้น";
+
+// สินค้าที่แยกสี/ไซส์: แต่ละแบบมีสต็อกของตัวเอง (ตาราง shop_variants ของร้านค้า)
+type Variant = { id: number; color: string; size: string; stock: number };
+let variants: Variant[] = [];
+try {
+	const { results } = await env.DB.prepare(
+		"SELECT id, color, size, stock FROM shop_variants WHERE product_id = ? ORDER BY sort, id",
+	)
+		.bind(p.id)
+		.all<Variant>();
+	variants = results;
+} catch {
+	// The table is created on the first shop API call; before that no product has variants
+}
+const colors = [...new Set(variants.map((v) => v.color).filter(Boolean))];
+const sizes = [...new Set(variants.map((v) => v.size).filter(Boolean))];
+// "สินค้าอื่นๆ" are not sold through the shop: show the LINE / phone contact instead of the cart
+const isOther = p.category?.trim() === OTHER_CATEGORY;
+const contact = isOther ? await getOthersContact() : null;
+---
+
+<Base title={p.title} description={p.description}>
+	<section class="band section">
+		<div class="frame">
+			<nav class="crumbs" aria-label="ตำแหน่ง">
+				{isOther ? <a href="/pages/others">อื่นๆ</a> : <a href="/shop">ร้านค้าสวัสดิการ</a>}
+				{p.category && !isOther && (
+					<>
+						<span aria-hidden="true">/</span>
+						<a href={`/shop?category=${encodeURIComponent(p.category)}`}>{p.category}</a>
+					</>
+				)}
+			</nav>
+
+			<div class="item">
+				<div class="item__media">
+					{
+						p.image ? (
+							<button type="button" class="item__zoom" aria-label="ขยายรูปสินค้า" data-zoom>
+								<Image image={p.image} sizes="(min-width: 900px) 560px, 100vw" priority />
+								<span class="item__zoom-hint" aria-hidden="true">
+									<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5M11 8v6M8 11h6"></path></svg>
+									ขยายรูป
+								</span>
+							</button>
+						) : (
+							<div class="item__placeholder">
+								<img src="/logo.png" alt="" />
+							</div>
+						)
+					}
+				</div>
+
+				<div class="item__body">
+					{(isNew || onPromo) && (
+						<p class="item__badges">
+							{isNew && <span class="item__badge item__badge--new">สินค้าใหม่</span>}
+							{onPromo && <span class="item__badge item__badge--promo">โปรโมชั่น</span>}
+						</p>
+					)}
+					<h1 class="item__title">{p.title}</h1>
+					{p.sku && <p class="item__sku">รหัสสินค้า {p.sku}</p>}
+					<p class="item__price">
+						{baht(p.price)}
+						{p.unit && <span class="item__unit"> / {p.unit}</span>}
+					</p>
+					{onPromo && promoRangeLabel(p, { year: true }) && (
+						<p class="item__promo">
+							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"></rect><path d="M16 2v4M8 2v4M3 10h18"></path></svg>
+							ระยะเวลาโปรโมชั่น <b>{promoRangeLabel(p, { year: true })}</b>
+						</p>
+					)}
+					{!isOther && tiers.length > 0 && (
+						<div class="item__tiers">
+							<p class="item__tiers-title">ราคาตามจำนวนที่สั่งซื้อ (ต่อ{unitLabel})</p>
+							<table>
+								<tbody>
+									<tr>
+										<td>ราคาปกติ</td>
+										<td>{baht(p.price)}</td>
+									</tr>
+									{tiers.map((t) => (
+										<tr>
+											<td>{t.qty.toLocaleString("th-TH")} {unitLabel}ขึ้นไป</td>
+											<td>{baht(t.price)}</td>
+										</tr>
+									))}
+								</tbody>
+							</table>
+						</div>
+					)}
+					{!isOther && bundles.length > 0 && (
+						<div class="item__tiers item__bundles">
+							<p class="item__tiers-title">ราคาโปรโมชั่นแบบชุด</p>
+							<table>
+								<tbody>
+									<tr>
+										<td>ราคาปกติ</td>
+										<td>{baht(p.price)} / {unitLabel}</td>
+									</tr>
+									{bundles.map((b) => (
+										<tr>
+											<td>{b.qty.toLocaleString("th-TH")} {unitLabel}</td>
+											<td>{baht(b.total)}</td>
+										</tr>
+									))}
+								</tbody>
+							</table>
+							<p class="item__bundles-note">นับรวมทุกสี/ไซส์ · ระบบจัดชุดให้ราคาถูกที่สุดในตะกร้าเอง</p>
+						</div>
+					)}
+					{isOther && contact ? (
+						<OrderContact contact={contact} product={p.title} />
+					) : (
+						<>
+					<p class:list={["item__stock", { "is-out": stock <= 0 }]} data-stock-text>
+						{stock <= 0
+							? "สินค้าหมด"
+							: variants.length > 0
+								? `กรุณาเลือก${[colors.length && "สี", sizes.length && "ไซส์"].filter(Boolean).join("และ")}`
+								: `มีสินค้า ${stock.toLocaleString("th-TH")} ${p.unit ?? ""}`}
+					</p>
+
+					<form
+						class="item__buy"
+						data-id={product.data.id}
+						data-slug={product.id}
+						data-name={p.title}
+						data-price={p.price}
+						data-tiers={JSON.stringify(tiers)}
+						data-bundles={JSON.stringify(bundles)}
+						data-stock={stock}
+						data-unit={p.unit ?? ""}
+						data-variants={JSON.stringify(variants)}
+					>
+						{colors.length > 0 && (
+							<fieldset class="opt">
+								<legend>สี</legend>
+								<div class="opt__list">
+									{colors.map((c) => (
+										<label class="opt__chip">
+											<input type="radio" name="color" value={c} disabled={stock <= 0} />
+											<span>{c}</span>
+										</label>
+									))}
+								</div>
+							</fieldset>
+						)}
+						{sizes.length > 0 && (
+							<fieldset class="opt">
+								<legend>ไซส์</legend>
+								<div class="opt__list">
+									{sizes.map((z) => (
+										<label class="opt__chip">
+											<input type="radio" name="size" value={z} disabled={stock <= 0} />
+											<span>{z}</span>
+										</label>
+									))}
+								</div>
+							</fieldset>
+						)}
+						<label class="item__qty">
+							<span>จำนวน</span>
+							<input type="number" name="qty" value="1" min="1" max={Math.max(stock, 1)} disabled={stock <= 0} />
+						</label>
+						<button type="submit" class="btn item__add" disabled={stock <= 0 || variants.length > 0}>
+							หยิบใส่ตะกร้า
+						</button>
+					</form>
+
+					<p class="item__added" data-added hidden>
+						เพิ่มลงตะกร้าแล้ว · <a href="/member#/cart">ดูตะกร้าและสั่งซื้อ</a>
+					</p>
+
+						</>
+					)}
+
+					{p.description && <p class="item__desc">{p.description}</p>}
+				</div>
+			</div>
+		</div>
+	</section>
+
+	{
+		p.image && (
+			<dialog class="lightbox" aria-label={`รูปสินค้า ${p.title}`} data-lightbox>
+				<img alt={p.title} data-lightbox-img />
+				<button type="button" class="lightbox__close" aria-label="ปิด" data-lightbox-close>
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"></path></svg>
+				</button>
+			</dialog>
+		)
+	}
+</Base>
+
+<script>
+	// กดรูปสินค้า = เปิดรูปต้นฉบับขนาดใหญ่ (คลิกพื้นหลัง ปุ่ม × หรือกด Esc เพื่อปิด)
+	const zoom = document.querySelector<HTMLButtonElement>("[data-zoom]");
+	const lightbox = document.querySelector<HTMLDialogElement>("[data-lightbox]");
+	const big = document.querySelector<HTMLImageElement>("[data-lightbox-img]");
+	if (zoom && lightbox && big) {
+		// ขยายให้เต็มพื้นที่จอเสมอ (96% กว้าง / 94% สูง) ตามสัดส่วนรูป แม้ไฟล์ต้นฉบับจะเล็ก
+		const fit = () => {
+			if (!big.naturalWidth) return;
+			const ratio = big.naturalWidth / big.naturalHeight;
+			const width = Math.min(innerWidth * 0.96, innerHeight * 0.94 * ratio);
+			big.style.width = `${Math.round(width)}px`;
+		};
+		big.addEventListener("load", fit);
+		addEventListener("resize", () => lightbox.open && fit());
+		zoom.addEventListener("click", () => {
+			const img = zoom.querySelector("img");
+			if (!img) return;
+			big.src = img.src || img.currentSrc;
+			lightbox.showModal();
+			fit();
+		});
+		lightbox.addEventListener("click", (e) => {
+			// คลิกนอกตัวรูป (พื้นหลังมืด) หรือปุ่ม × = ปิด
+			if (e.target === lightbox || (e.target as Element).closest("[data-lightbox-close]")) lightbox.close();
+		});
+	}
+</script>
+
+<script>
+	// Same cart as the member area (/member): localStorage "sao_cart"
+	type Variant = { id: number; color: string; size: string; stock: number };
+	const form = document.querySelector<HTMLFormElement>(".item__buy");
+	const variants: Variant[] = JSON.parse(form?.dataset.variants || "[]");
+	const hasColor = variants.some((v) => v.color);
+	const hasSize = variants.some((v) => v.size);
+	const label = (v: Variant) => [v.color, v.size && `ไซส์ ${v.size}`].filter(Boolean).join(" / ");
+	const picked = () => ({
+		color: form?.querySelector<HTMLInputElement>("input[name=color]:checked")?.value,
+		size: form?.querySelector<HTMLInputElement>("input[name=size]:checked")?.value,
+	});
+	const current = (): Variant | undefined => {
+		const { color, size } = picked();
+		if ((hasColor && !color) || (hasSize && !size)) return undefined;
+		return variants.find((v) => (!hasColor || v.color === color) && (!hasSize || v.size === size));
+	};
+
+	// Grey out each choice that has no stock with the other choice already made
+	function refreshOptions() {
+		if (!form || !variants.length) return;
+		const { color, size } = picked();
+		form.querySelectorAll<HTMLInputElement>("input[name=color], input[name=size]").forEach((input) => {
+			const isColor = input.name === "color";
+			const ok = variants.some(
+				(v) =>
+					v.stock > 0 &&
+					(isColor ? v.color === input.value : v.size === input.value) &&
+					(isColor ? !size || !hasSize || v.size === size : !color || !hasColor || v.color === color),
+			);
+			input.closest(".opt__chip")?.classList.toggle("is-out", !ok);
+		});
+		const v = current();
+		const text = form.parentElement?.querySelector<HTMLElement>("[data-stock-text]");
+		const add = form.querySelector<HTMLButtonElement>(".item__add")!;
+		const qty = form.qty as HTMLInputElement;
+		if (!v) {
+			if (text) text.textContent = `กรุณาเลือก${[hasColor && "สี", hasSize && "ไซส์"].filter(Boolean).join("และ")}`;
+			text?.classList.remove("is-out");
+			add.disabled = true;
+			return;
+		}
+		if (text) {
+			text.textContent = v.stock > 0 ? `${label(v)}: มีสินค้า ${v.stock.toLocaleString("th-TH")} ${form.dataset.unit}` : `${label(v)}: สินค้าหมด`;
+			text.classList.toggle("is-out", v.stock <= 0);
+		}
+		add.disabled = v.stock <= 0;
+		qty.disabled = v.stock <= 0;
+		qty.max = String(Math.max(v.stock, 1));
+	}
+	form?.addEventListener("change", refreshOptions);
+	refreshOptions();
+
+	form?.addEventListener("submit", (e) => {
+		e.preventDefault();
+		const d = form.dataset;
+		const v = variants.length ? current() : undefined;
+		if (variants.length && !v) return;
+		const stock = v ? v.stock : Number(d.stock);
+		if (stock <= 0) return;
+		const qty = Math.max(1, Math.min(stock, parseInt(form.qty.value, 10) || 1));
+		let cart: Array<Record<string, unknown> & { id: string; qty: number }> = [];
+		try {
+			cart = JSON.parse(localStorage.getItem("sao_cart") || "[]");
+		} catch {}
+		const line = cart.find((i) => i.id === d.id && (i.variant_id || null) === (v?.id ?? null));
+		const next = Math.min(stock, (line?.qty ?? 0) + qty);
+		const image = document.querySelector<HTMLImageElement>(".item__media img:not(.item__placeholder img)")?.currentSrc;
+		const data = {
+			id: d.id!,
+			variant_id: v?.id ?? null,
+			variant: v ? label(v) : null,
+			slug: d.slug,
+			name: d.name,
+			price: Number(d.price),
+			tiers: JSON.parse(d.tiers || "[]"),
+			bundles: JSON.parse(d.bundles || "[]"),
+			stock,
+			unit: d.unit,
+			image,
+			qty: next,
+		};
+		if (line) Object.assign(line, data);
+		else cart.push(data);
+		try {
+			localStorage.setItem("sao_cart", JSON.stringify(cart));
+		} catch {}
+		const count = cart.reduce((n, i) => n + i.qty, 0);
+		window.dispatchEvent(new CustomEvent("shop:changed", { detail: { user: undefined, count } }));
+		const added = document.querySelector<HTMLElement>("[data-added]");
+		if (added) added.hidden = false;
+	});
+</script>
+
+<style>
+	.item__promo {
+		display: flex;
+		align-items: center;
+		gap: var(--spacing-2);
+		width: fit-content;
+		margin: calc(-1 * var(--spacing-2)) 0 var(--spacing-3);
+		padding: var(--spacing-2) var(--spacing-3);
+		border: 1px solid #fed7aa;
+		border-radius: var(--radius);
+		background: #fff7ed;
+		color: #9a3412;
+	}
+
+	.item__promo + .item__tiers {
+		margin-top: 0;
+	}
+
+	.item__promo svg {
+		flex: none;
+		width: 18px;
+		height: 18px;
+	}
+
+	/* ตารางราคาตามจำนวน */
+	.item__tiers {
+		width: fit-content;
+		min-width: min(100%, 300px);
+		margin: calc(-1 * var(--spacing-2)) 0 var(--spacing-4);
+		padding: var(--spacing-3) var(--spacing-4);
+		border: 1px solid #fed7aa;
+		border-radius: var(--radius-lg);
+		background: #fff7ed;
+		color: #7c2d12;
+	}
+
+	.item__tiers + .item__bundles {
+		margin-top: 0;
+	}
+
+	.item__bundles-note {
+		margin: var(--spacing-2) 0 0;
+		font-size: var(--font-size-xs);
+		color: #9a3412;
+	}
+
+	.item__tiers-title {
+		margin: 0 0 var(--spacing-2);
+		font-size: var(--font-size-sm);
+		font-weight: 700;
+		color: #9a3412;
+	}
+
+	.item__tiers table {
+		width: 100%;
+		border-collapse: collapse;
+	}
+
+	.item__tiers td {
+		padding: 4px 0;
+		border-top: 1px dashed #fdba74;
+	}
+
+	.item__tiers tr:first-child td {
+		border-top: 0;
+		color: var(--color-text-secondary);
+	}
+
+	.item__tiers td + td {
+		padding-left: var(--spacing-6);
+		text-align: right;
+		font-weight: 700;
+		font-variant-numeric: tabular-nums;
+	}
+
+	.item__badges {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--spacing-2);
+		margin: 0 0 var(--spacing-3);
+	}
+
+	.item__badge {
+		padding: 2px var(--spacing-3);
+		border-radius: var(--radius-full);
+		font-size: var(--font-size-sm);
+		font-weight: 600;
+		color: #fff;
+	}
+
+	/* สีเดียวกับป้ายบนการ์ด (ProductGrid): ใหม่ = แดง · โปรโมชั่น = เขียว */
+	.item__badge--new {
+		background: #dc2626;
+	}
+
+	.item__badge--promo {
+		background: #15803d;
+	}
+
+	.opt {
+		margin: 0 0 var(--spacing-4);
+		padding: 0;
+		border: 0;
+	}
+
+	.opt legend {
+		margin-bottom: var(--spacing-2);
+		font-weight: 600;
+	}
+
+	.opt__list {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--spacing-2);
+	}
+
+	.opt__chip {
+		position: relative;
+		cursor: pointer;
+	}
+
+	.opt__chip input {
+		position: absolute;
+		opacity: 0;
+		pointer-events: none;
+	}
+
+	.opt__chip span {
+		display: inline-flex;
+		align-items: center;
+		min-width: 2.75rem;
+		min-height: 2.5rem;
+		justify-content: center;
+		padding: 0 var(--spacing-3);
+		border: 1px solid var(--color-border-strong);
+		border-radius: var(--radius);
+		background: var(--color-surface);
+		font-weight: 500;
+	}
+
+	.opt__chip:hover span {
+		border-color: var(--color-navy-2);
+	}
+
+	.opt__chip input:focus-visible + span {
+		outline: 2px solid var(--color-brand);
+		outline-offset: 2px;
+	}
+
+	.opt__chip input:checked + span {
+		border-color: var(--color-navy);
+		background: var(--color-navy);
+		color: #fff;
+	}
+
+	/* No stock with the other choice made: still clickable, so the shopper can see it is sold out */
+	.opt__chip.is-out span {
+		color: var(--color-muted);
+		text-decoration: line-through;
+		border-style: dashed;
+	}
+
+	.crumbs {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--spacing-2);
+		margin-bottom: var(--spacing-6);
+		font-size: var(--font-size-sm);
+		color: var(--color-muted);
+	}
+
+	.item {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+		gap: var(--spacing-10);
+		align-items: start;
+	}
+
+	.item__media {
+		overflow: hidden;
+		aspect-ratio: 1;
+		padding: var(--card-padding);
+		border-radius: var(--radius-xl);
+		background: var(--color-surface);
+		box-shadow: var(--shadow-card);
+	}
+
+	.item__media :global(img) {
+		width: 100%;
+		height: 100%;
+		border-radius: var(--radius-lg);
+		object-fit: cover;
+	}
+
+	/* ปุ่มขยายรูป: ทั้งรูปกดได้ */
+	.item__zoom {
+		position: relative;
+		display: block;
+		width: 100%;
+		height: 100%;
+		padding: 0;
+		border: 0;
+		border-radius: var(--radius-lg);
+		background: none;
+		cursor: zoom-in;
+	}
+
+	.item__zoom:focus-visible {
+		outline: 3px solid var(--color-navy);
+		outline-offset: 3px;
+	}
+
+	.item__zoom-hint {
+		position: absolute;
+		right: var(--spacing-3);
+		bottom: var(--spacing-3);
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 6px 12px;
+		border-radius: var(--radius-full);
+		background: rgb(11 31 71 / 0.78);
+		font-size: var(--font-size-sm);
+		font-weight: 600;
+		color: #fff;
+		transition: background var(--transition-fast);
+	}
+
+	.item__zoom-hint svg {
+		width: 16px;
+		height: 16px;
+	}
+
+	.item__zoom:hover .item__zoom-hint {
+		background: rgb(11 31 71 / 0.95);
+	}
+
+	/* หน้าต่างรูปขยาย */
+	.lightbox {
+		max-width: 96vw;
+		max-height: 94vh;
+		padding: 0;
+		border: 0;
+		border-radius: var(--radius-lg);
+		background: transparent;
+		overflow: visible;
+	}
+
+	.lightbox::backdrop {
+		background: rgb(5 12 28 / 0.88);
+	}
+
+	.lightbox img {
+		display: block;
+		max-width: 96vw;
+		max-height: 94vh;
+		width: min(96vw, 94vh);
+		height: auto;
+		border-radius: var(--radius-lg);
+		background: #fff;
+		object-fit: contain;
+	}
+
+	.lightbox__close {
+		position: fixed;
+		top: 16px;
+		right: 16px;
+		display: grid;
+		place-items: center;
+		width: 44px;
+		height: 44px;
+		border: 0;
+		border-radius: var(--radius-full);
+		background: rgb(255 255 255 / 0.15);
+		color: #fff;
+		cursor: pointer;
+	}
+
+	.lightbox__close:hover {
+		background: rgb(255 255 255 / 0.3);
+	}
+
+	.lightbox__close svg {
+		width: 22px;
+		height: 22px;
+	}
+
+	.item__placeholder {
+		display: grid;
+		place-items: center;
+		height: 100%;
+		border-radius: var(--radius-lg);
+		background: linear-gradient(120deg, #0b1f47, #1d4185);
+	}
+
+	.item__placeholder img {
+		width: 35%;
+		height: auto;
+		opacity: 0.5;
+	}
+
+	.item__body {
+		display: grid;
+		gap: var(--spacing-3);
+	}
+
+	.item__title {
+		font-size: var(--font-size-3xl);
+		font-weight: 700;
+		line-height: 1.35;
+		color: var(--color-navy);
+	}
+
+	.item__sku {
+		font-size: var(--font-size-sm);
+		color: var(--color-muted);
+	}
+
+	.item__price {
+		font-size: var(--font-size-3xl);
+		font-weight: 700;
+		color: var(--color-gold-text);
+	}
+
+	.item__unit {
+		font-size: var(--font-size-base);
+		font-weight: 400;
+		color: var(--color-muted);
+	}
+
+	.item__stock {
+		font-weight: 600;
+		color: #1f7a46;
+	}
+
+	.item__stock.is-out {
+		color: #b42318;
+	}
+
+	.item__buy {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: end;
+		gap: var(--spacing-3);
+		margin-block: var(--spacing-3);
+	}
+
+	.item__qty {
+		display: grid;
+		gap: var(--spacing-1);
+		font-size: var(--font-size-sm);
+		color: var(--color-muted);
+	}
+
+	.item__qty input {
+		width: 6rem;
+		height: 44px;
+		padding: 0 var(--spacing-3);
+		border: 1px solid var(--color-border-strong);
+		border-radius: var(--radius);
+		background: var(--color-surface);
+		color: var(--color-text);
+		font: inherit;
+	}
+
+	.item__add {
+		height: 44px;
+		padding-inline: var(--spacing-8);
+	}
+
+	.item__add:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.item__added {
+		font-weight: 600;
+		color: #1f7a46;
+	}
+
+	.item__desc {
+		padding-top: var(--spacing-4);
+		border-top: 1px solid var(--color-border);
+		line-height: 1.8;
+		white-space: pre-line;
+	}
+
+	@media (max-width: 800px) {
+		.item {
+			grid-template-columns: minmax(0, 1fr);
+			gap: var(--spacing-6);
+		}
+	}
+</style>

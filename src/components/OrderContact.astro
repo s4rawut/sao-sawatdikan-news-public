@@ -1,0 +1,100 @@
+---
+import { telHref, type OthersContact } from "../utils/others-contact";
+
+interface Props {
+	contact: OthersContact;
+	/** product name, shown in the prompt so staff know what is being asked about */
+	product?: string;
+}
+
+const { contact, product } = Astro.props;
+const any = contact.lineUrl || contact.phone;
+---
+
+<div class="order-contact">
+	<p class="order-contact__title">สั่งซื้อผ่าน LINE หรือโทรศัพท์เท่านั้น</p>
+	<p class="order-contact__hint">
+		สินค้าหมวดนี้ไม่ได้ขายผ่านระบบร้านค้าออนไลน์{product ? ` แจ้งชื่อสินค้า “${product}” เมื่อติดต่อ` : ""}
+	</p>
+	{any && contact.name && <p class="order-contact__name">ติดต่อ: <b>{contact.name}</b></p>}
+	{
+		any ? (
+			<div class="order-contact__actions">
+				{contact.lineUrl && (
+					<a class="order-contact__btn order-contact__btn--line" href={contact.lineUrl} target="_blank" rel="noopener noreferrer">
+						สั่งซื้อทาง LINE{contact.lineId && ` (${contact.lineId})`}
+					</a>
+				)}
+				{contact.phone && (
+					<a class="order-contact__btn" href={telHref(contact.phone)}>
+						โทร {contact.phone}
+					</a>
+				)}
+			</div>
+		) : (
+			<p class="order-contact__hint">ช่องทางติดต่อจะแจ้งให้ทราบเร็ว ๆ นี้</p>
+		)
+	}
+</div>
+
+<style>
+	.order-contact {
+		display: grid;
+		gap: var(--spacing-2);
+		padding: var(--spacing-5);
+		border: 1px solid var(--color-gold);
+		border-radius: var(--radius-lg);
+		background: var(--color-surface);
+	}
+
+	.order-contact__title {
+		margin: 0;
+		font-weight: 700;
+		color: var(--color-navy);
+	}
+
+	.order-contact__name {
+		margin: 0;
+		color: var(--color-text);
+	}
+
+	.order-contact__hint {
+		margin: 0;
+		font-size: var(--font-size-sm);
+		color: var(--color-text-secondary);
+	}
+
+	.order-contact__actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--spacing-3);
+		margin-top: var(--spacing-2);
+	}
+
+	.order-contact__btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 44px;
+		padding-inline: var(--spacing-5);
+		border-radius: var(--radius-full);
+		border: 1px solid var(--color-navy);
+		font-weight: 600;
+		color: var(--color-navy);
+		text-decoration: none;
+	}
+
+	.order-contact__btn:hover {
+		background: var(--color-navy-soft);
+	}
+
+	.order-contact__btn--line {
+		border-color: #06c755;
+		background: #06c755;
+		color: #fff;
+	}
+
+	.order-contact__btn--line:hover {
+		background: #05b14c;
+	}
+</style>

@@ -1,0 +1,276 @@
+---
+// หน้าต่างแสดง PDF บนหน้าเดิม: คลิกลิงก์เอกสาร (/documents/...) แล้วอ่านได้ทันที ไม่เปลี่ยนหน้า
+// มีปุ่มดาวน์โหลด เปิดในแท็บใหม่ และปิด (ปุ่ม X, Esc หรือคลิกพื้นหลัง)
+// ไม่มี JavaScript หรือกดค้าง/คลิกกลาง = ลิงก์ปกติ ไปหน้า /documents/view/<key>
+---
+
+<dialog class="pdf-modal" aria-labelledby="pdf-modal-title">
+	<div class="pdf-modal__panel">
+		<header class="pdf-modal__bar">
+			<div class="pdf-modal__head">
+				<h2 class="pdf-modal__title" id="pdf-modal-title" data-title>เอกสาร</h2>
+				<p class="pdf-modal__meta" data-meta></p>
+			</div>
+			<div class="pdf-modal__actions">
+				<a class="btn pdf-modal__download" data-download href="#">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M5 21h14"></path></svg>
+					<span>ดาวน์โหลด</span>
+				</a>
+				<a class="pdf-modal__open" data-open href="#" target="_blank" rel="noopener">เปิดในแท็บใหม่</a>
+				<button type="button" class="pdf-modal__close" data-close aria-label="ปิด">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg>
+				</button>
+			</div>
+		</header>
+		<div class="pdf-modal__body" data-body>
+			<div class="pdf-modal__pages" data-pages></div>
+			<p class="pdf-modal__status" data-status></p>
+		</div>
+	</div>
+</dialog>
+
+<script>
+	import { renderPdf, type RenderedPdf } from "../scripts/pdf-render";
+
+	// /documents/<key>, /documents/view/<key>, and EmDash media links (/_emdash/api/media/file/<key>),
+	// which the editor inserts when a PDF from the media library is linked in page content
+	const KEY =
+		/^\/(?:documents\/(?:view\/)?|_emdash\/api\/media\/file\/)([0-9A-Za-z]{26}(?:\.[0-9A-Za-z]{26})?\.pdf)$/i;
+	const dialog = document.querySelector<HTMLDialogElement>(".pdf-modal")!;
+	const $ = <T extends HTMLElement>(sel: string) => dialog.querySelector<T>(sel)!;
+	const title = $("[data-title]");
+	const meta = $("[data-meta]");
+	const download = $<HTMLAnchorElement>("[data-download]");
+	const openTab = $<HTMLAnchorElement>("[data-open]");
+	const body = $("[data-body]");
+	const pages = $("[data-pages]");
+	const status = $("[data-status]");
+	let current: RenderedPdf | undefined;
+	let seq = 0;
+
+	function close() {
+		if (dialog.open) dialog.close();
+	}
+
+	dialog.addEventListener("close", () => {
+		seq++;
+		current?.destroy();
+		current = undefined;
+		pages.replaceChildren();
+		document.documentElement.classList.remove("pdf-modal-open");
+	});
+	$("[data-close]").addEventListener("click", close);
+	// a click on the dim backdrop (outside the panel) closes it
+	dialog.addEventListener("click", (e) => {
+		if (e.target === dialog) close();
+	});
+
+	async function open(key: string, label: string) {
+		const run = ++seq;
+		const raw = `/documents/${key}?raw=1`;
+		title.textContent = label || "เอกสาร";
+		meta.textContent = "เอกสาร PDF";
+		download.href = `/documents/${key}?download=1`;
+		openTab.href = raw;
+		status.hidden = false;
+		status.textContent = "กำลังโหลดเอกสาร…";
+		pages.replaceChildren();
+		body.scrollTop = 0;
+		document.documentElement.classList.add("pdf-modal-open");
+		dialog.showModal();
+		try {
+			const doc = await renderPdf(raw, pages, body);
+			if (run !== seq) return doc.destroy(); // closed or replaced while loading
+			current = doc;
+			status.hidden = true;
+			meta.textContent = `เอกสาร PDF · ${doc.numPages} หน้า`;
+		} catch (err) {
+			if (run !== seq) return;
+			console.error("[pdf modal]", err);
+			status.innerHTML = "";
+			status.append(
+				"แสดงตัวอย่างเอกสารไม่ได้ กรุณากด ",
+				Object.assign(document.createElement("a"), { href: download.href, textContent: "ดาวน์โหลด" }),
+				" หรือ ",
+				Object.assign(document.createElement("a"), { href: raw, target: "_blank", rel: "noopener", textContent: "เปิดในแท็บใหม่" }),
+			);
+		}
+	}
+
+	// Any link to a document, anywhere on the page (attachments, links inside page content)
+	document.addEventListener("click", (e) => {
+		if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+		const a = (e.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
+		if (!a || dialog.contains(a) || a.hasAttribute("download")) return;
+		const url = new URL(a.href, location.href);
+		if (url.origin !== location.origin || url.search) return;
+		const m = KEY.exec(url.pathname);
+		if (!m) return;
+		e.preventDefault();
+		const label = (a.dataset.docTitle || a.textContent || "").replace(/\s+/g, " ").trim();
+		open(m[1], label);
+	});
+</script>
+
+<style is:global>
+	.pdf-modal-open {
+		overflow: hidden;
+	}
+
+	.pdf-modal {
+		width: min(100vw - 2rem, 1000px);
+		max-width: none;
+		height: calc(100dvh - 2rem);
+		max-height: none;
+		margin: auto;
+		padding: 0;
+		border: 0;
+		border-radius: var(--radius-xl);
+		background: var(--color-bg);
+		color: var(--color-text);
+		box-shadow: 0 24px 60px -12px rgb(0 0 0 / 0.45);
+		overflow: hidden;
+	}
+
+	.pdf-modal::backdrop {
+		background: rgb(8 18 40 / 0.6);
+	}
+
+	.pdf-modal__panel {
+		display: flex;
+		flex-direction: column;
+		height: 100%;
+	}
+
+	.pdf-modal__bar {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--spacing-3);
+		padding: var(--spacing-4) var(--spacing-5);
+		border-bottom: 1px solid var(--color-border);
+		background: var(--color-surface);
+	}
+
+	.pdf-modal__head {
+		min-width: 0;
+		flex: 1 1 16rem;
+	}
+
+	.pdf-modal__title {
+		margin: 0;
+		overflow: hidden;
+		font-size: var(--font-size-lg);
+		font-weight: 700;
+		line-height: 1.4;
+		color: var(--color-navy);
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.pdf-modal__meta {
+		margin: 0;
+		font-size: var(--font-size-sm);
+		color: var(--color-muted);
+	}
+
+	.pdf-modal__actions {
+		display: flex;
+		align-items: center;
+		gap: var(--spacing-3);
+	}
+
+	.pdf-modal__download {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--spacing-2);
+	}
+
+	.pdf-modal__download svg {
+		width: 18px;
+		height: 18px;
+	}
+
+	.pdf-modal__open {
+		font-size: var(--font-size-sm);
+		font-weight: 600;
+		color: var(--color-navy);
+		white-space: nowrap;
+	}
+
+	.pdf-modal__close {
+		display: inline-grid;
+		place-items: center;
+		width: 40px;
+		height: 40px;
+		border: 0;
+		border-radius: var(--radius-full);
+		background: var(--color-fill);
+		color: var(--color-text);
+		cursor: pointer;
+	}
+
+	.pdf-modal__close:hover {
+		background: var(--color-fill-strong);
+	}
+
+	.pdf-modal__close svg {
+		width: 20px;
+		height: 20px;
+	}
+
+	.pdf-modal__body {
+		flex: 1;
+		overflow-y: auto;
+		overscroll-behavior: contain;
+		padding: var(--spacing-5);
+	}
+
+	.pdf-modal__pages {
+		display: grid;
+		gap: var(--spacing-4);
+		max-width: 860px;
+		margin-inline: auto;
+	}
+
+	.pdf-modal__status {
+		padding: var(--spacing-10) 0;
+		text-align: center;
+		color: var(--color-muted);
+	}
+
+	.pdf-page {
+		width: 100%;
+		overflow: hidden;
+		border-radius: var(--radius);
+		background: #fff;
+		box-shadow: var(--shadow-card);
+	}
+
+	.pdf-page canvas {
+		display: block;
+		width: 100%;
+		height: 100%;
+	}
+
+	@media (max-width: 640px) {
+		.pdf-modal {
+			width: 100vw;
+			height: 100dvh;
+			border-radius: 0;
+		}
+
+		.pdf-modal__bar {
+			padding: var(--spacing-3) var(--spacing-4);
+		}
+
+		.pdf-modal__body {
+			padding: var(--spacing-3);
+		}
+
+		.pdf-modal__open {
+			display: none;
+		}
+	}
+</style>

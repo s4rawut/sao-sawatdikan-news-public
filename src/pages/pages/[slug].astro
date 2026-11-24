@@ -1,0 +1,1313 @@
+---
+import {
+	getEmDashEntry,
+	getSeoMeta,
+	decodeSlug,
+	getSiteSettings,
+} from "emdash";
+import { PortableText, Image } from "emdash/ui";
+import { getEmDashCollection, getEmDashReferences } from "emdash";
+import Base from "../../layouts/Base.astro";
+import ProductGrid from "../../components/ProductGrid.astro";
+import OrderContact from "../../components/OrderContact.astro";
+import { getOthersContact } from "../../utils/others-contact";
+import { resolveBlogSiteIdentity } from "../../utils/site-identity";
+import "../../styles/prose.css";
+import { documentHref } from "../../utils/documents";
+
+const slug = decodeSlug(Astro.params.slug);
+
+if (!slug) {
+	return Astro.rewrite("/404");
+}
+
+const { entry: page, cacheHint } = await getEmDashEntry("pages", slug);
+
+if (!page) {
+	return Astro.rewrite("/404");
+}
+
+if (Astro.cache?.enabled) Astro.cache.set(cacheHint);
+
+// หน้า "อื่นๆ" แสดงสินค้าสวัสดิการเดิม (collection legacy_products แยกจากสินค้าร้านค้า) ซึ่งสั่งซื้อผ่าน LINE / โทรศัพท์
+let otherProducts: Awaited<ReturnType<typeof getEmDashCollection<"legacy_products">>>["entries"] = [];
+const contact = slug === "others" ? await getOthersContact() : null;
+if (slug === "others") {
+	const result = await getEmDashCollection("legacy_products", { orderBy: { seq: "asc" }, limit: 200 });
+	otherProducts = result.entries;
+	if (Astro.cache?.enabled) Astro.cache.set(result.cacheHint);
+}
+
+// หน้า "ระเบียบและหลักเกณฑ์" (slug about): แต่ละข้อมาจาก collection regulations เรียงตามลำดับ
+let regulations: Awaited<ReturnType<typeof getEmDashCollection<"regulations">>>["entries"] = [];
+if (slug === "about") {
+	const result = await getEmDashCollection("regulations", { orderBy: { seq: "asc" }, limit: 200 });
+	regulations = result.entries;
+	if (Astro.cache?.enabled) Astro.cache.set(result.cacheHint);
+}
+const fileUrl = (file: unknown) => {
+	const f = file as { url?: string; src?: string; meta?: { storageKey?: unknown } } | null | undefined;
+	if (!f) return "";
+	const key = typeof f.meta?.storageKey === "string" ? f.meta.storageKey : undefined;
+	return (key && Astro.locals.emdash?.getPublicMediaUrl?.(key)) || f.url || f.src || "";
+};
+
+// หน้า "รายงานฐานะการเงิน" (slug financial-reports): collection financial_reports เรียงจากวันที่รายงานล่าสุด
+let finReports: Awaited<ReturnType<typeof getEmDashCollection<"financial_reports">>>["entries"] = [];
+if (slug === "financial-reports") {
+	const result = await getEmDashCollection("financial_reports", { orderBy: { report_date: "desc" }, limit: 200 });
+	finReports = result.entries;
+	if (Astro.cache?.enabled) Astro.cache.set(result.cacheHint);
+}
+const thaiDate = (d: unknown) => {
+	if (!d) return "";
+	const date = new Date(d as string);
+	return Number.isNaN(date.getTime())
+		? ""
+		: date.toLocaleDateString("th-TH", { day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Bangkok" });
+};
+
+// หน้า "สิทธิประโยชน์" (slug benefits): แต่ละรายการมาจาก collection benefits เรียงตามลำดับ
+let benefits: Awaited<ReturnType<typeof getEmDashCollection<"benefits">>>["entries"] = [];
+if (slug === "benefits") {
+	const result = await getEmDashCollection("benefits", { orderBy: { seq: "asc" }, limit: 200 });
+	benefits = result.entries;
+	if (Astro.cache?.enabled) Astro.cache.set(result.cacheHint);
+}
+// ระเบียบ/ประกาศที่เกี่ยวข้องของแต่ละสิทธิ (ช่อง reference "regulations" ในหลังบ้าน) -> ลิงก์ไฟล์ระเบียบท้ายรายการ
+type RelatedReg = { id: string; title: string; href: string; attachment: unknown };
+const relatedRegs = new Map<string, RelatedReg[]>();
+if (slug === "benefits" && benefits.length) {
+	const pages = await Promise.all(
+		benefits.map((b) => getEmDashReferences("benefits", b.data.id, "regulations", { limit: 20 }).catch(() => null)),
+	);
+	pages.forEach((page, i) => {
+		if (!page) return;
+		if (page.error) console.error("benefit regulations", benefits[i].id, page.error);
+		if (Astro.cache?.enabled && page.cacheHint) Astro.cache.set(page.cacheHint);
+		const list = page.entries
+			.map((r) => {
+				const d = r.data as { title?: string; attachment?: unknown };
+				return { id: r.id, title: (d.title ?? "").trim(), href: fileUrl(d.attachment), attachment: d.attachment };
+			})
+			.filter((r) => r.title);
+		if (list.length) relatedRegs.set(benefits[i].id, list);
+	});
+}
+
+// group by "หมวด", in the order each category first appears (items are already sorted by seq)
+const benefitGroups: { category: string; items: typeof benefits }[] = [];
+for (const b of benefits) {
+	const category = b.data.category?.trim() ?? "";
+	let g = benefitGroups.find((x) => x.category === category);
+	if (!g) benefitGroups.push((g = { category, items: [] }));
+	g.items.push(b);
+}
+
+// หน้า "ชมรม": แถบชมรมจาก collection clubs กดเข้าไปเป็นข่าวของชมรมนั้น (/clubs/[slug])
+let clubs: Awaited<ReturnType<typeof getEmDashCollection<"clubs">>>["entries"] = [];
+if (slug === "clubs") {
+	const result = await getEmDashCollection("clubs", { orderBy: { seq: "asc" }, limit: 100 });
+	clubs = result.entries;
+	if (Astro.cache?.enabled) Astro.cache.set(result.cacheHint);
+}
+// หน้าที่แสดงเนื้อหาเป็นกล่อง: แยกตามหัวข้อ h2 (กล่องใหญ่), h3 (กล่องย่อยเรียงเป็นตาราง)
+// และย่อหน้าที่เป็นลิงก์ทั้งย่อหน้า (กล่องเอกสาร PDF พร้อมย่อหน้าที่ตามมา เช่น วันที่สั่ง)
+const BOXED_PAGES = new Set(["welfare-mission", "subcommittees", "committee-orders"]);
+type PTBlock = {
+	_type?: string;
+	style?: string;
+	listItem?: string;
+	children?: { text?: string; marks?: string[] }[];
+	markDefs?: { _key: string; _type: string }[];
+};
+type BoxSection = {
+	title: string;
+	intro: PTBlock[];
+	subs: { title: string; blocks: PTBlock[] }[];
+	docs: PTBlock[][];
+	/** numbered list items written as "ชื่อ — ตำแหน่ง" render as a member table */
+	members: { name: string; role: string }[];
+};
+const MEMBER_SEP = " — ";
+const blockText = (b: PTBlock) => (b.children ?? []).map((c) => c.text ?? "").join("");
+const isDocLink = (b: PTBlock) =>
+	b._type === "block" &&
+	!b.listItem &&
+	(b.style ?? "normal") === "normal" &&
+	b.children?.length === 1 &&
+	!!b.children[0].marks?.some((m) => b.markDefs?.some((d) => d._key === m && d._type === "link"));
+const boxIntro: PTBlock[] = [];
+const boxSections: BoxSection[] = [];
+if (BOXED_PAGES.has(slug)) {
+	let sec: BoxSection | undefined;
+	let sub: BoxSection["subs"][number] | undefined;
+	let doc: PTBlock[] | undefined;
+	for (const b of (page.data.content ?? []) as PTBlock[]) {
+		if (b.style === "h2") {
+			boxSections.push((sec = { title: blockText(b), intro: [], subs: [], docs: [], members: [] }));
+			sub = doc = undefined;
+		} else if (!sec) {
+			boxIntro.push(b);
+		} else if (b.style === "h3") {
+			sec.subs.push((sub = { title: blockText(b), blocks: [] }));
+			doc = undefined;
+		} else if (!sub && !doc && b.listItem === "number" && blockText(b).includes(MEMBER_SEP)) {
+			const t = blockText(b);
+			const i = t.lastIndexOf(MEMBER_SEP);
+			sec.members.push({ name: t.slice(0, i).trim(), role: t.slice(i + MEMBER_SEP.length).trim() });
+		} else if (isDocLink(b)) {
+			sec.docs.push((doc = [b]));
+		} else if (doc) {
+			doc.push(b);
+		} else if (sub) {
+			sub.blocks.push(b);
+		} else {
+			sec.intro.push(b);
+		}
+	}
+}
+const boxed = boxSections.length > 0;
+// หน้าที่แต่ละกล่องพับเก็บได้ (คลิกชื่อหัวข้อเพื่อเปิดดูรายละเอียด)
+const collapsible = slug === "subcommittees";
+const Card = collapsible ? "details" : "section";
+
+const { siteTitle } = resolveBlogSiteIdentity(await getSiteSettings());
+const seo = getSeoMeta(page, {
+	siteTitle,
+	siteUrl: Astro.url.origin,
+	path: Astro.url.pathname.replace(/\/$/, ""),
+});
+---
+
+<Base
+	title={seo.title}
+	pageTitle={seo.ogTitle}
+	description={seo.description}
+	canonical={seo.canonical}
+	robots={seo.robots}
+	content={{ collection: "pages", id: page.data.id, slug }}
+>
+	<article class="band page">
+		<div class="frame page__layout">
+			<header class="page__header">
+				<h1 class="page__title" {...page.edit.title}>{page.data.title}</h1>
+			</header>
+
+			{boxed ? (
+				<div class="page__body boxed" {...page.edit.content}>
+					{boxIntro.length > 0 && (
+						<div class="prose boxed__intro">
+							<PortableText value={boxIntro} />
+						</div>
+					)}
+					{boxSections.map((s) => (
+						<Card class:list={["boxed__card", collapsible && "boxed__card--fold"]}>
+							{collapsible ? (
+								<summary class="boxed__summary">
+									<h2 class="boxed__title">{s.title}</h2>
+									{s.members.length > 0 && <span class="boxed__count">{s.members.length} คน</span>}
+									<svg class="boxed__chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
+								</summary>
+							) : (
+								<h2 class="boxed__title">{s.title}</h2>
+							)}
+							<div class="boxed__content">
+							{s.intro.length > 0 && (
+								<div class="prose boxed__prose">
+									<PortableText value={s.intro} />
+								</div>
+							)}
+							{s.members.length > 0 && (
+								<ol class="boxed__members">
+									{s.members.map((m) => (
+										<li class="boxed__member">
+											<span class="boxed__member-name">{m.name}</span>
+											<span class="boxed__member-role">{m.role}</span>
+										</li>
+									))}
+								</ol>
+							)}
+							{s.subs.length > 0 && (
+								<div class="boxed__grid">
+									{s.subs.map((sub) => (
+										<div class="boxed__sub">
+											<h3 class="boxed__subtitle">{sub.title}</h3>
+											<div class="prose boxed__prose">
+												<PortableText value={sub.blocks} />
+											</div>
+										</div>
+									))}
+								</div>
+							)}
+							{s.docs.length > 0 && (
+								<ul class="boxed__docs">
+									{s.docs.map((d) => (
+										<li class="boxed__doc">
+											<span class="boxed__doc-icon" aria-hidden="true">
+												<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+											</span>
+											<div class="prose boxed__prose">
+												<span class="boxed__doc-label">เอกสารแนบ</span>
+												<PortableText value={d} />
+											</div>
+										</li>
+									))}
+								</ul>
+							)}
+						</div>
+						</Card>
+					))}
+				</div>
+			) : (
+				<div class="prose page__body" {...page.edit.content}>
+					<PortableText value={page.data.content} />
+				</div>
+			)}
+		</div>
+	</article>
+
+	{
+		otherProducts.length > 0 && contact && (
+			<section class="band section" aria-labelledby="other-products">
+				<div class="frame">
+					<h2 id="other-products" class="other-products__title">สินค้าอื่นๆ</h2>
+					<div class="other-products__contact">
+						<OrderContact contact={contact} />
+					</div>
+					<ProductGrid products={otherProducts} contactOnly hrefBase="/others" />
+				</div>
+			</section>
+		)
+	}
+
+	{
+		slug === "about" && (
+			<section class="band section" aria-labelledby="regs-title">
+				<div class="frame">
+					<h2 id="regs-title" class="other-products__title">รายการระเบียบและหลักเกณฑ์</h2>
+					{regulations.length === 0 ? (
+						<p class="other-products__hint">อยู่ระหว่างรวบรวมระเบียบและหลักเกณฑ์</p>
+					) : (
+						<>
+							<ol class="regs__toc">
+								{regulations.map((r, i) => (
+									<li>
+										<a href={`#reg-${r.id}`}>
+											<span class="regs__num">{i + 1}</span>
+											{r.data.title}
+										</a>
+									</li>
+								))}
+							</ol>
+							<div class="regs">
+								{regulations.map((r, i) => (
+									<section class="reg" id={`reg-${r.id}`} aria-labelledby={`reg-${r.id}-t`}>
+										<h3 class="reg__title" id={`reg-${r.id}-t`} {...r.edit.title}>
+											<span class="regs__num">{i + 1}</span>
+											{r.data.title}
+										</h3>
+										{r.data.content && (
+											<div class="prose reg__body" {...r.edit.content}>
+												<PortableText value={r.data.content} />
+											</div>
+										)}
+										{fileUrl(r.data.attachment) && (
+											<a class="reg__file" href={documentHref(r.data.attachment, fileUrl(r.data.attachment))} data-doc-title={r.data.title}>
+												เปิดดูไฟล์แนบ
+											</a>
+										)}
+									</section>
+								))}
+							</div>
+						</>
+					)}
+				</div>
+			</section>
+		)
+	}
+
+	{
+		slug === "benefits" && (
+			<section class="band section" aria-labelledby="benefits-title">
+				<div class="frame">
+					<h2 id="benefits-title" class="other-products__title">สิทธิประโยชน์ที่สมาชิกจะได้รับ</h2>
+					{benefits.length === 0 ? (
+						<p class="other-products__hint">อยู่ระหว่างรวบรวมรายละเอียดสิทธิประโยชน์</p>
+					) : (
+						<>
+							{benefitGroups.length > 1 && (
+								<nav class="benefit-toc" aria-label="หมวดสิทธิประโยชน์" data-benefit-tabs>
+									{benefitGroups.map((g, gi) => (
+										<a href={`#benefit-cat-${gi + 1}`} aria-current={gi === 0 ? "true" : undefined}>
+											<span class="benefit-toc__num">{gi + 1}</span>
+											{g.category || "อื่น ๆ"}
+										</a>
+									))}
+								</nav>
+							)}
+							{benefitGroups.map((g, gi) => (
+								<section class="benefit-cat" data-benefit-panel id={`benefit-cat-${gi + 1}`} aria-labelledby={`benefit-cat-${gi + 1}-t`}>
+									{g.category && (
+										<h3 class="benefit-cat__title" id={`benefit-cat-${gi + 1}-t`}>
+											<span class="regs__num">{gi + 1}</span>
+											{g.category}
+										</h3>
+									)}
+									<ul class="benefits">
+										{g.items.map((b) => (
+											<li class="benefit" id={`benefit-${b.id}`}>
+												<h4 class="benefit__title" {...b.edit.title}>{b.data.title}</h4>
+												{b.data.amount && (
+													<p class="benefit__amount" {...b.edit.amount}>{b.data.amount}</p>
+												)}
+												{b.data.deadline_90 && (
+													<p class="benefit__deadline">
+														<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>
+														ยื่นคำขอภายใน 90 วันนับแต่วันที่มีเหตุ
+													</p>
+												)}
+												{b.data.summary && (
+													<p class="benefit__summary" {...b.edit.summary}>{b.data.summary}</p>
+												)}
+												{b.data.content && b.data.content.length > 0 && (
+													<div class="prose benefit__body" {...b.edit.content}>
+														<PortableText value={b.data.content} />
+													</div>
+												)}
+												{fileUrl(b.data.attachment) && (
+													<a class="reg__file" href={documentHref(b.data.attachment, fileUrl(b.data.attachment))} data-doc-title={b.data.title}>
+														เปิดดูแบบฟอร์ม / ไฟล์แนบ
+													</a>
+												)}
+												{relatedRegs.get(b.id) && (
+													<div class="benefit__regs">
+														<p class="benefit__regs-title">ระเบียบและหลักเกณฑ์ที่เกี่ยวข้อง</p>
+														<ul>
+															{relatedRegs.get(b.id)!.map((r) => (
+																<li>
+																	{r.href ? (
+																		<a href={documentHref(r.attachment, r.href)} data-doc-title={r.title}>{r.title}</a>
+																	) : (
+																		<a href={`/pages/about#reg-${r.id}`}>{r.title}</a>
+																	)}
+																</li>
+															))}
+														</ul>
+													</div>
+												)}
+											</li>
+										))}
+									</ul>
+								</section>
+							))}
+						</>
+					)}
+				</div>
+			</section>
+		)
+	}
+
+	{
+		slug === "financial-reports" && (
+			<section class="band section" aria-labelledby="fin-title">
+				<div class="frame">
+					<h2 id="fin-title" class="other-products__title">รายการรายงาน</h2>
+					{finReports.length === 0 ? (
+						<p class="other-products__hint">ยังไม่มีรายงานเผยแพร่</p>
+					) : (
+						<ul class="fin-reports">
+							{finReports.map((r) => {
+								const href = fileUrl(r.data.attachment);
+								const date = thaiDate(r.data.report_date);
+								return (
+									<li class="fin-report" id={`report-${r.id}`}>
+										<div class="fin-report__icon" aria-hidden="true">PDF</div>
+										<div class="fin-report__main">
+											<h3 class="fin-report__title" {...r.edit.title}>
+												{href ? (
+													<a href={documentHref(r.data.attachment, href)} data-doc-title={r.data.title}>{r.data.title}</a>
+												) : (
+													r.data.title
+												)}
+											</h3>
+											{(r.data.period || date) && (
+												<p class="fin-report__meta">
+													{r.data.period}
+													{r.data.period && date && " · "}
+													{date && `ณ วันที่ ${date}`}
+												</p>
+											)}
+											{r.data.summary && <p class="fin-report__summary" {...r.edit.summary}>{r.data.summary}</p>}
+											{r.data.content && r.data.content.length > 0 && (
+												<div class="prose fin-report__body" {...r.edit.content}>
+													<PortableText value={r.data.content} />
+												</div>
+											)}
+										</div>
+										{href && (
+											<a class="btn fin-report__open" href={documentHref(r.data.attachment, href)} data-doc-title={r.data.title}>
+												เปิดอ่าน
+											</a>
+										)}
+									</li>
+								);
+							})}
+						</ul>
+					)}
+				</div>
+			</section>
+		)
+	}
+
+	{
+		page.data.cover && (
+			<section class="band section" aria-labelledby="page-cover-title">
+				<div class="frame page-cover">
+					<h2 id="page-cover-title" class="other-products__title">{slug === "benefits" ? "อินโฟกราฟิกสรุปสวัสดิการ" : "รูปประกอบ"}</h2>
+					<a class="page-cover__img" href={fileUrl(page.data.cover)} target="_blank" rel="noopener" title="เปิดรูปขนาดเต็ม">
+						<Image image={page.data.cover} sizes="(min-width: 900px) 820px, 100vw" />
+					</a>
+					<p class="page-cover__hint">กดที่รูปเพื่อเปิดขนาดเต็ม</p>
+				</div>
+			</section>
+		)
+	}
+
+	{
+		slug === "clubs" && (
+			<section class="band section" aria-labelledby="clubs-title">
+				<div class="frame">
+					<h2 id="clubs-title" class="other-products__title">เลือกชมรม</h2>
+					{clubs.length === 0 ? (
+						<p class="other-products__hint">อยู่ระหว่างรวบรวมข้อมูลชมรม</p>
+					) : (
+						<ul class="clubs">
+							{clubs.map((c) => (
+								<li>
+									<a class="club-card" href={`/clubs/${c.id}`}>
+										<span class="club-card__media">
+											{c.data.cover ? (
+												<Image image={c.data.cover} sizes="(min-width: 900px) 360px, 100vw" />
+											) : (
+												<img src="/logo.png" alt="" class="club-card__logo" />
+											)}
+										</span>
+										<span class="club-card__body">
+											<span class="club-card__head">
+												{(c.data as { logo?: unknown }).logo && (
+													<span class="club-card__badge">
+														<Image image={(c.data as { logo?: unknown }).logo as never} sizes="56px" />
+													</span>
+												)}
+												<span class="club-card__name">{c.data.title}</span>
+											</span>
+											{c.data.description && <span class="club-card__desc">{c.data.description}</span>}
+											<span class="club-card__more">ดูรายละเอียดชมรม →</span>
+										</span>
+									</a>
+								</li>
+							))}
+						</ul>
+					)}
+				</div>
+			</section>
+		)
+	}
+</Base>
+
+<script>
+	// สิทธิประโยชน์: กดหมวดแล้วแสดงเฉพาะหมวดนั้นตรงนี้เลย ไม่ต้องเลื่อนลงไปหา (ไม่มี JavaScript = แสดงทุกหมวดเหมือนเดิม)
+	const nav = document.querySelector<HTMLElement>("[data-benefit-tabs]");
+	const panels = [...document.querySelectorAll<HTMLElement>("[data-benefit-panel]")];
+	if (nav && panels.length > 1) {
+		const links = [...nav.querySelectorAll<HTMLAnchorElement>("a")];
+		const show = (id: string) => {
+			if (!panels.some((p) => p.id === id)) id = panels[0].id;
+			panels.forEach((p) => (p.hidden = p.id !== id));
+			links.forEach((a) => {
+				if (a.hash === `#${id}`) a.setAttribute("aria-current", "true");
+				else a.removeAttribute("aria-current");
+			});
+		};
+		nav.classList.add("is-tabs");
+		show(location.hash.slice(1));
+		nav.addEventListener("click", (e) => {
+			const a = (e.target as Element).closest<HTMLAnchorElement>("a");
+			if (!a) return;
+			e.preventDefault();
+			const id = a.hash.slice(1);
+			show(id);
+			history.replaceState(null, "", `#${id}`);
+			// keep the chips in view (on phones the row can be above the fold after a long panel)
+			if (nav.getBoundingClientRect().top < 0) nav.scrollIntoView({ block: "start", behavior: "smooth" });
+		});
+	}
+</script>
+
+<style>
+	.other-products__title {
+		position: relative;
+		padding-inline-start: var(--spacing-4);
+		font-size: var(--font-size-3xl);
+		font-weight: 700;
+		color: var(--color-navy);
+	}
+
+	.other-products__title::before {
+		content: "";
+		position: absolute;
+		inset-inline-start: 0;
+		top: 0.15em;
+		bottom: 0.15em;
+		width: 4px;
+		border-radius: 2px;
+		background: var(--color-gold);
+	}
+
+	.other-products__contact {
+		margin: var(--spacing-4) 0 var(--spacing-6);
+		max-width: 640px;
+	}
+
+	.regs__toc {
+		display: grid;
+		gap: var(--spacing-2);
+		margin: var(--spacing-5) 0 var(--spacing-8);
+		padding: var(--spacing-5);
+		list-style: none;
+		border-radius: var(--radius-xl);
+		background: var(--color-surface);
+		box-shadow: var(--shadow-card);
+	}
+
+	.regs__toc a {
+		display: flex;
+		align-items: baseline;
+		gap: var(--spacing-3);
+		color: var(--color-text);
+		text-decoration: none;
+	}
+
+	.regs__toc a:hover {
+		color: var(--color-navy);
+		text-decoration: underline;
+	}
+
+	.regs__num {
+		flex: none;
+		display: inline-grid;
+		place-items: center;
+		min-width: 1.9em;
+		height: 1.9em;
+		margin-inline-end: var(--spacing-2);
+		border-radius: var(--radius-full);
+		background: var(--color-navy);
+		color: #fff;
+		font-size: 0.85em;
+		font-weight: 700;
+	}
+
+	.regs {
+		display: grid;
+		gap: var(--spacing-5);
+	}
+
+	.reg {
+		scroll-margin-top: calc(var(--nav-height, 64px) + var(--spacing-6));
+		padding: clamp(1.25rem, 1rem + 1vw, 2rem);
+		border-radius: var(--radius-xl);
+		background: var(--color-surface);
+		box-shadow: var(--shadow-card);
+	}
+
+	.reg__title {
+		display: flex;
+		align-items: center;
+		margin: 0 0 var(--spacing-4);
+		font-size: var(--font-size-xl);
+		color: var(--color-navy);
+	}
+
+	/* ระเบียบที่เกี่ยวข้อง ท้ายแต่ละสิทธิประโยชน์ */
+	.benefit__regs {
+		margin-top: var(--spacing-4);
+		padding-top: var(--spacing-3);
+		border-top: 1px dashed var(--color-border);
+	}
+
+	.benefit__regs-title {
+		margin: 0 0 var(--spacing-2);
+		font-size: var(--font-size-sm);
+		font-weight: 700;
+		color: var(--color-text-secondary);
+	}
+
+	.benefit__regs ul {
+		display: grid;
+		gap: var(--spacing-1);
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+
+	.benefit__regs a {
+		display: inline-flex;
+		align-items: flex-start;
+		gap: var(--spacing-2);
+		font-size: var(--font-size-sm);
+		color: var(--color-navy);
+	}
+
+	/* ไอคอนกระดาษ (เอกสาร) หน้าชื่อระเบียบ */
+	.benefit__regs a::before {
+		content: "";
+		flex: none;
+		width: 16px;
+		height: 16px;
+		margin-top: 0.2em;
+		background: var(--color-gold);
+		-webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z'/%3E%3Cpath d='M14 2v5h6'/%3E%3Cpath d='M8 13h8M8 17h8M8 9h2'/%3E%3C/svg%3E") center / contain no-repeat;
+		mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z'/%3E%3Cpath d='M14 2v5h6'/%3E%3Cpath d='M8 13h8M8 17h8M8 9h2'/%3E%3C/svg%3E") center / contain no-repeat;
+	}
+
+	.reg__file {
+		display: inline-flex;
+		margin-top: var(--spacing-4);
+		font-weight: 600;
+		color: var(--color-navy);
+	}
+
+	.fin-reports {
+		display: grid;
+		gap: var(--spacing-4);
+		margin: var(--spacing-5) 0 0;
+		padding: 0;
+		list-style: none;
+	}
+
+	.fin-report {
+		display: grid;
+		grid-template-columns: auto 1fr auto;
+		align-items: start;
+		gap: var(--spacing-4);
+		padding: var(--spacing-5);
+		border-radius: var(--radius-xl);
+		background: var(--color-surface);
+		box-shadow: var(--shadow-card);
+	}
+
+	.fin-report__icon {
+		display: grid;
+		place-items: center;
+		width: 48px;
+		height: 56px;
+		border-radius: var(--radius);
+		background: var(--color-fill);
+		font-family: var(--font-mono);
+		font-size: var(--font-size-xs);
+		font-weight: 700;
+		color: var(--color-navy);
+	}
+
+	.fin-report__title {
+		margin: 0;
+		font-size: var(--font-size-lg);
+		line-height: 1.45;
+		color: var(--color-navy);
+	}
+
+	.fin-report__title a {
+		color: inherit;
+		text-decoration: none;
+	}
+
+	.fin-report__title a:hover {
+		text-decoration: underline;
+	}
+
+	.fin-report__meta {
+		margin: var(--spacing-1) 0 0;
+		font-size: var(--font-size-sm);
+		color: var(--color-muted);
+	}
+
+	.fin-report__summary {
+		margin: var(--spacing-2) 0 0;
+		color: var(--color-text-secondary);
+	}
+
+	.fin-report__body {
+		margin-top: var(--spacing-3);
+	}
+
+	.fin-report__open {
+		align-self: center;
+		white-space: nowrap;
+	}
+
+	@media (max-width: 640px) {
+		.fin-report {
+			grid-template-columns: auto 1fr;
+		}
+
+		.fin-report__open {
+			grid-column: 1 / -1;
+			justify-self: start;
+		}
+	}
+
+	.benefit-toc {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--spacing-2);
+		margin: var(--spacing-5) 0 var(--spacing-2);
+	}
+
+	.benefit-toc a {
+		padding: var(--spacing-1) var(--spacing-3);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-full);
+		background: var(--color-surface);
+		font-size: var(--font-size-sm);
+		font-weight: 600;
+		color: var(--color-navy);
+		text-decoration: none;
+	}
+
+	.benefit-toc a {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--spacing-2);
+	}
+
+	.benefit-toc a:hover {
+		border-color: var(--color-navy);
+	}
+
+	.benefit-toc__num {
+		display: inline-grid;
+		place-items: center;
+		min-width: 1.4em;
+		height: 1.4em;
+		border-radius: var(--radius-full);
+		background: var(--color-fill);
+		font-size: 0.85em;
+	}
+
+	.benefit-toc.is-tabs a[aria-current="true"] {
+		border-color: var(--color-navy);
+		background: var(--color-navy);
+		color: #fff;
+	}
+
+	.benefit-toc.is-tabs a[aria-current="true"] .benefit-toc__num {
+		background: rgb(255 255 255 / 0.2);
+	}
+
+	.benefit-toc.is-tabs {
+		scroll-margin-top: calc(var(--nav-height, 64px) + var(--spacing-4));
+	}
+
+	.benefit-toc.is-tabs + .benefit-cat {
+		margin-top: var(--spacing-5);
+	}
+
+	.benefit-cat[hidden] {
+		display: none;
+	}
+
+	.benefit-cat {
+		margin-top: var(--spacing-8);
+		scroll-margin-top: calc(var(--header-height, var(--nav-height, 64px)) + var(--spacing-6));
+	}
+
+	.benefit-cat__title {
+		display: flex;
+		align-items: center;
+		margin: 0 0 var(--spacing-4);
+		font-size: var(--font-size-2xl);
+		color: var(--color-navy);
+	}
+
+	.benefits {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
+		align-items: start;
+		gap: var(--spacing-5);
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+
+	.benefit {
+		display: grid;
+		gap: var(--spacing-3);
+		padding: clamp(1.25rem, 1rem + 1vw, 1.75rem);
+		border-radius: var(--radius-xl);
+		background: var(--color-surface);
+		box-shadow: var(--shadow-card);
+		scroll-margin-top: calc(var(--header-height, var(--nav-height, 64px)) + var(--spacing-6));
+	}
+
+	.benefit__title {
+		margin: 0;
+		font-size: var(--font-size-xl);
+		line-height: 1.4;
+		color: var(--color-navy);
+	}
+
+	.benefit__amount {
+		justify-self: start;
+		margin: 0;
+		padding: var(--spacing-1) var(--spacing-3);
+		border-radius: var(--radius-full);
+		background: var(--color-navy-soft);
+		color: var(--color-navy);
+		font-weight: 700;
+	}
+
+	.benefit__deadline {
+		display: flex;
+		align-items: center;
+		gap: var(--spacing-1);
+		margin: var(--spacing-2) 0 0;
+		font-size: var(--font-size-sm);
+		font-weight: 600;
+		color: var(--color-text-secondary);
+	}
+
+	.benefit__deadline svg {
+		flex: none;
+		width: 16px;
+		height: 16px;
+	}
+
+	.benefit__summary {
+		margin: 0;
+		color: var(--color-text-secondary);
+	}
+
+	.benefit__body {
+		padding-top: var(--spacing-3);
+		border-top: 1px solid var(--color-border);
+		font-size: var(--font-size-sm);
+	}
+
+	.benefit__body :global(ul) {
+		margin: 0;
+	}
+
+	.page-cover {
+		display: grid;
+		justify-items: center;
+		gap: var(--spacing-4);
+	}
+
+	.page-cover > h2 {
+		justify-self: start;
+	}
+
+	.page-cover__img {
+		display: block;
+		width: 100%;
+		max-width: 820px;
+		overflow: hidden;
+		padding: var(--card-padding);
+		border-radius: var(--radius-xl);
+		background: var(--color-surface);
+		box-shadow: var(--shadow-card);
+	}
+
+	.page-cover__img :global(img) {
+		display: block;
+		width: 100%;
+		height: auto;
+		border-radius: var(--radius-lg);
+	}
+
+	.page-cover__hint {
+		margin: 0;
+		font-size: var(--font-size-sm);
+		color: var(--color-muted);
+	}
+
+	.clubs {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+		gap: var(--spacing-5);
+		margin: var(--spacing-5) 0 0;
+		padding: 0;
+		list-style: none;
+	}
+
+	.club-card {
+		display: flex;
+		flex-direction: column;
+		height: 100%;
+		padding: var(--card-padding);
+		border-radius: var(--radius-xl);
+		background: var(--color-surface);
+		box-shadow: var(--shadow-card);
+		color: var(--color-text);
+		text-decoration: none;
+		transition: box-shadow var(--transition-base), translate var(--transition-base);
+	}
+
+	.club-card:hover {
+		box-shadow: var(--shadow-card-hover);
+		translate: 0 -2px;
+	}
+
+	/* โลโก้ชมรมหน้าชื่อชมรมบนการ์ด (ไม่ทับรูปปก) */
+	.club-card__head {
+		display: flex;
+		align-items: center;
+		gap: var(--spacing-3);
+	}
+
+	.club-card__badge {
+		flex: none;
+		width: 48px;
+		height: 48px;
+		padding: 3px;
+		border: 1px solid var(--color-border);
+		border-radius: 12px;
+		background: #fff;
+	}
+
+	.club-card__badge :global(img) {
+		width: 100%;
+		height: 100%;
+		object-fit: contain;
+		border-radius: 8px;
+	}
+
+	.club-card__media {
+		position: relative;
+		display: grid;
+		place-items: center;
+		aspect-ratio: 16 / 9;
+		overflow: hidden;
+		border-radius: var(--radius-lg);
+		background: var(--color-navy-soft);
+	}
+
+	.club-card__media :global(img) {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+
+	.club-card__media .club-card__logo {
+		width: 30%;
+		height: auto;
+		object-fit: contain;
+		opacity: 0.8;
+	}
+
+	.club-card__body {
+		display: grid;
+		gap: var(--spacing-1);
+		padding: var(--spacing-4) var(--spacing-2) var(--spacing-2);
+	}
+
+	.club-card__name {
+		font-size: var(--font-size-xl);
+		font-weight: 700;
+		color: var(--color-navy);
+	}
+
+	.club-card__desc {
+		color: var(--color-text-secondary);
+	}
+
+	.club-card__more {
+		margin-top: var(--spacing-2);
+		font-weight: 600;
+		color: var(--color-navy);
+	}
+
+	.other-products__hint {
+		margin: var(--spacing-2) 0 var(--spacing-6);
+		color: var(--color-text-secondary);
+	}
+
+	/* หน้าแบบกล่อง (ภารกิจของสวัสดิการ, คณะกรรมการย่อย) */
+	.boxed {
+		display: grid;
+		gap: var(--spacing-5);
+	}
+
+	.boxed__intro {
+		font-size: var(--font-size-lg);
+		color: var(--color-text-secondary);
+	}
+
+	.boxed__card {
+		padding: clamp(1.25rem, 1rem + 1vw, 2rem);
+		border-radius: var(--radius-xl);
+		background: var(--color-surface);
+		box-shadow: var(--shadow-card);
+	}
+
+	.boxed__title {
+		position: relative;
+		margin: 0 0 var(--spacing-4);
+		padding-inline-start: var(--spacing-4);
+		font-size: var(--font-size-xl);
+		font-weight: 700;
+		color: var(--color-navy);
+	}
+
+	.boxed__title::before {
+		content: "";
+		position: absolute;
+		inset-inline-start: 0;
+		top: 0.15em;
+		bottom: 0.15em;
+		width: 4px;
+		border-radius: 2px;
+		background: var(--color-gold);
+	}
+
+	.boxed__prose > :global(:first-child) {
+		margin-top: 0;
+	}
+
+	.boxed__prose > :global(:last-child) {
+		margin-bottom: 0;
+	}
+
+	.boxed__prose :global(li + li) {
+		margin-top: var(--spacing-2);
+	}
+
+	.boxed__grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+		gap: var(--spacing-4);
+	}
+
+	.boxed__card > .boxed__prose + .boxed__grid,
+	.boxed__card > .boxed__prose + .boxed__docs {
+		margin-top: var(--spacing-4);
+	}
+
+	.boxed__sub {
+		padding: var(--spacing-5);
+		border: 1px solid var(--color-border);
+		border-top: 3px solid var(--color-gold);
+		border-radius: var(--radius-lg);
+		background: var(--color-bg);
+	}
+
+	.boxed__subtitle {
+		margin: 0 0 var(--spacing-2);
+		font-size: var(--font-size-base);
+		font-weight: 700;
+		color: var(--color-navy);
+	}
+
+	.boxed__sub .boxed__prose {
+		font-size: var(--font-size-sm);
+	}
+
+	.boxed__docs {
+		display: grid;
+		gap: var(--spacing-3);
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+
+	.boxed__doc {
+		display: grid;
+		grid-template-columns: auto 1fr;
+		align-items: start;
+		gap: var(--spacing-4);
+		padding: var(--spacing-4);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-lg);
+		background: var(--color-bg);
+	}
+
+	.boxed__doc-icon {
+		display: grid;
+		place-items: center;
+		width: 40px;
+		height: 40px;
+		border-radius: var(--radius-full);
+		background: var(--color-fill);
+		color: var(--color-navy);
+	}
+
+	.boxed__doc-icon svg {
+		width: 20px;
+		height: 20px;
+	}
+
+	.boxed__doc-label {
+		display: block;
+		margin-bottom: var(--spacing-1);
+		font-size: var(--font-size-xs);
+		font-weight: 600;
+		letter-spacing: 0.02em;
+		color: var(--color-text-secondary);
+	}
+
+	/* รายชื่อกรรมการ: ชื่อซ้าย ตำแหน่งขวา (มือถือเรียงลง) */
+	.boxed__members {
+		margin: 0;
+		padding: 0;
+		list-style: none;
+		counter-reset: member;
+	}
+
+	.boxed__member {
+		display: grid;
+		grid-template-columns: 2rem minmax(0, 1fr) auto;
+		gap: var(--spacing-3);
+		align-items: baseline;
+		padding: var(--spacing-2) 0;
+		border-bottom: 1px solid var(--color-border);
+		counter-increment: member;
+	}
+
+	.boxed__member::before {
+		content: counter(member) ".";
+		color: var(--color-text-secondary);
+		font-variant-numeric: tabular-nums;
+	}
+
+	.boxed__member-name {
+		font-weight: 500;
+	}
+
+	.boxed__member-role {
+		color: var(--color-text-secondary);
+		text-align: end;
+	}
+
+	@media (max-width: 560px) {
+		.boxed__member {
+			grid-template-columns: 2rem minmax(0, 1fr);
+		}
+
+		.boxed__member-role {
+			grid-column: 2;
+			text-align: start;
+			font-size: var(--font-size-sm);
+		}
+	}
+
+	.boxed__card > .boxed__prose + .boxed__members,
+	.boxed__card > .boxed__members + .boxed__docs {
+		margin-top: var(--spacing-5);
+	}
+
+	.boxed__doc .boxed__prose :global(p:first-of-type) {
+		margin-top: 0;
+		font-weight: 600;
+	}
+
+	.boxed__doc .boxed__prose :global(p + p) {
+		margin-top: var(--spacing-1) !important;
+		font-size: var(--font-size-sm);
+		color: var(--color-text-secondary);
+	}
+
+	/* กล่องพับเก็บได้ (details/summary) */
+	.boxed__card--fold {
+		padding: 0;
+	}
+
+	.boxed__summary {
+		display: flex;
+		align-items: center;
+		gap: var(--spacing-3);
+		padding: clamp(1rem, 0.8rem + 0.8vw, 1.5rem) clamp(1.25rem, 1rem + 1vw, 2rem);
+		cursor: pointer;
+		list-style: none;
+		border-radius: var(--radius-xl);
+	}
+
+	.boxed__summary::-webkit-details-marker {
+		display: none;
+	}
+
+	.boxed__summary:hover .boxed__title {
+		color: var(--color-navy-2, var(--color-navy));
+	}
+
+	.boxed__summary:focus-visible {
+		outline: 2px solid var(--color-brand-ring, var(--color-navy));
+		outline-offset: 2px;
+	}
+
+	.boxed__summary .boxed__title {
+		flex: 1;
+		margin: 0;
+	}
+
+	.boxed__count {
+		flex: none;
+		padding: 0.15em 0.7em;
+		border-radius: var(--radius-full);
+		background: var(--color-fill);
+		font-size: var(--font-size-sm);
+		color: var(--color-text-secondary);
+	}
+
+	.boxed__chevron {
+		flex: none;
+		width: 20px;
+		height: 20px;
+		color: var(--color-navy);
+		transition: transform var(--transition-fast);
+	}
+
+	.boxed__card--fold[open] .boxed__chevron {
+		transform: rotate(180deg);
+	}
+
+	.boxed__card--fold .boxed__content {
+		padding: 0 clamp(1.25rem, 1rem + 1vw, 2rem) clamp(1.25rem, 1rem + 1vw, 2rem);
+	}
+
+	.boxed__content > .boxed__prose + .boxed__grid,
+	.boxed__content > .boxed__prose + .boxed__docs,
+	.boxed__content > .boxed__prose + .boxed__members,
+	.boxed__content > .boxed__members + .boxed__docs {
+		margin-top: var(--spacing-5);
+	}
+
+	.page {
+		padding-block: clamp(3rem, 2rem + 4vw, 5.5rem) clamp(4rem, 3rem + 4vw, 7rem);
+	}
+
+	.page__layout {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+		gap: var(--spacing-8);
+	}
+
+	.page__title {
+		font-size: var(--font-size-display);
+		line-height: 1.05;
+		max-width: 22ch;
+	}
+
+	@media (min-width: 960px) {
+		.page__layout {
+			grid-template-columns: minmax(14rem, 1fr) minmax(0, var(--content-width));
+			column-gap: clamp(2rem, 1rem + 4vw, 6rem);
+		}
+
+		.page__header {
+			position: sticky;
+			top: calc(var(--nav-height) + var(--spacing-8));
+			align-self: start;
+		}
+	}
+</style>

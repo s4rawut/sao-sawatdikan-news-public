@@ -1,0 +1,122 @@
+/*
+  theme.css -- your theme overrides. This is the file to edit to
+  retheme the site.
+
+  Every design token lives in src/styles/tokens.css (colors, type
+  scale, spacing, layout, shadows) with its default value. Override any
+  of them here: declarations in this file are unlayered, so they always
+  beat the @layer base defaults in tokens.css.
+
+  Colors are defined with light-dark(). Overriding with a plain color
+  changes light and dark mode at once; use light-dark(<light>, <dark>)
+  to set different values per mode.
+
+  Set the three brand tokens together, as in the example below:
+  --color-on-brand defaults to near-black in dark mode.
+
+  Webfonts are loaded in astro.config.mjs (--font-body, --font-mono).
+  Swap the loaded font there; use overrides here for system fonts or a
+  separate heading face.
+
+  Example:
+
+  :root {
+    --color-brand: light-dark(#0f766e, #2dd4bf);
+    --color-brand-hover: light-dark(#115e59, #5eead4);
+    --color-on-brand: light-dark(#ffffff, #0a0a0a);
+    --font-heading: "Iowan Old Style", Georgia, serif;
+    --radius-lg: 18px;
+    --radius-xl: 24px;
+  }
+*/
+
+/* สวัสดิการ สตง. — กรมท่า-ทอง ชุดเดียวกับร้านสวัสดิการ */
+:root {
+	--color-navy: light-dark(#0f2a5c, #c9d6f2);
+	--color-navy-2: light-dark(#1d4185, #9fb6e8);
+	--color-navy-soft: light-dark(#e8eef9, #16213a);
+	--color-gold: #c9a227;
+	--color-gold-text: light-dark(#8a6c12, #e7c860); /* gold dark enough for text */
+
+	--color-bg: light-dark(#f6f4ef, #0b1220);
+	--color-surface: light-dark(#ffffff, #111a2e);
+	--color-fill: light-dark(#efece4, #1a2540);
+	--color-fill-strong: light-dark(#e4e1d8, #24304d);
+	--color-text: light-dark(#1d2433, #e8ebf2);
+	--color-text-secondary: light-dark(#5f6b7f, #a9b3c7);
+	--color-muted: light-dark(#6b7486, #8f9ab0);
+	--color-border: light-dark(#e4e1d8, #24304d);
+	--color-border-subtle: light-dark(#eeebe3, #1a2540);
+	--color-border-strong: light-dark(#d3cfc3, #34426a);
+
+	--color-brand: light-dark(#0f2a5c, #e7c860);
+	--color-brand-hover: light-dark(#1d4185, #f2d98a);
+	--color-on-brand: light-dark(#ffffff, #0b1220);
+
+	--font-heading: var(--font-body);
+	--font-weight-heading: 600;
+	--font-weight-display: 700;
+	--tracking-tight: 0;
+	--tracking-snug: 0;
+	--leading-tight: 1.3;
+	--nav-height: 60px;
+	--wide-width: 1280px;
+	--content-width: 760px;
+}
+
+@supports not (color: light-dark(#000, #fff)) {
+	:root {
+		--color-navy: #0f2a5c;
+		--color-navy-2: #1d4185;
+		--color-navy-soft: #e8eef9;
+		--color-gold-text: #8a6c12;
+		--color-bg: #f6f4ef;
+		--color-surface: #ffffff;
+		--color-fill: #efece4;
+		--color-fill-strong: #e4e1d8;
+		--color-text: #1d2433;
+		--color-text-secondary: #5f6b7f;
+		--color-muted: #6b7486;
+		--color-border: #e4e1d8;
+		--color-border-subtle: #eeebe3;
+		--color-border-strong: #d3cfc3;
+		--color-brand: #0f2a5c;
+		--color-brand-hover: #1d4185;
+		--color-on-brand: #ffffff;
+	}
+}
+
+/* Thai has no capitals: the template's spaced-out uppercase mono labels break Thai words apart */
+.eyebrow {
+	font-family: var(--font-body);
+	letter-spacing: 0;
+	text-transform: none;
+}
+
+
+/* ใช้ธีมสว่างเสมอทุกอุปกรณ์ (มือถือที่ตั้งโหมดมืดก็ได้สีเดียวกับ desktop) */
+:root,
+:root.dark {
+	color-scheme: light;
+}
+
+/* เมนูหลักบน desktop: ตัวอักษรเล็กลงจากค่าเริ่มต้น (สูงสุด 1rem → 0.9375rem)
+ * ใช้ #site-nav เพราะสไตล์ใน Base.astro เป็น scoped (มี data-astro-cid) */
+@media (min-width: 1101px) {
+	/* ทุกเมนูอยู่บรรทัดเดียวเสมอ: ระยะห่างระหว่างเมนูเล็กลง และกระจายให้เต็มความกว้างแถบ
+	 * (เดิมจอใหญ่ ระยะห่างขยายถึง 1.25rem ต่อข้าง แต่แถบเมนูกว้างได้สูงสุดแค่ความกว้างเฟรม เมนูท้ายจึงตกบรรทัด) */
+	#site-nav {
+		flex: 1;
+	}
+
+	#site-nav ul {
+		flex-wrap: nowrap;
+		justify-content: space-between;
+	}
+
+	#site-nav a,
+	#site-nav .site-nav__parent {
+		padding-inline: clamp(0.35rem, 0.6vw - 0.2rem, 0.75rem);
+		font-size: clamp(0.8125rem, 0.5vw + 0.3rem, 0.9375rem);
+	}
+}

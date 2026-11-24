@@ -1,0 +1,394 @@
+---
+import { getEmDashEntry, getEmDashCollection, decodeSlug, getSiteSettings } from "emdash";
+import { PortableText, Image } from "emdash/ui";
+import Base from "../../layouts/Base.astro";
+import { resolveBlogSiteIdentity } from "../../utils/site-identity";
+import "../../styles/prose.css";
+
+const slug = decodeSlug(Astro.params.slug);
+if (!slug) return Astro.rewrite("/404");
+
+// club_posts.club -> clubs: the clubs end of that relation (field "posts") lists the posts pointing at this club
+const { entry: club, cacheHint } = await getEmDashEntry("clubs", slug, {
+	references: { posts: { limit: 100 } },
+});
+if (!club) return Astro.rewrite("/404");
+
+const all = await getEmDashCollection("clubs", { orderBy: { seq: "asc" }, limit: 100 });
+if (Astro.cache?.enabled) {
+	Astro.cache.set(cacheHint);
+	Astro.cache.set(all.cacheHint);
+}
+
+type Post = {
+	id: string;
+	data: { title: string; image?: unknown; content?: unknown; publishedAt?: Date | null; createdAt?: Date };
+	edit: Record<string, Record<string, string>>;
+};
+const posts = ((club.references?.posts?.entries ?? []) as unknown as Post[])
+	.filter((p) => p.data.publishedAt)
+	.sort((a, b) => +(b.data.publishedAt ?? 0) - +(a.data.publishedAt ?? 0));
+
+// รายชื่อสมาชิก: ช่อง "รายชื่อสมาชิก" ในหลังบ้าน บรรทัดละคน "ชื่อ-สกุล | สังกัด | ตำแหน่ง"
+// (คั่นด้วย | หรือแท็บก็ได้ · ช่องที่ไม่ได้ใส่แสดงเป็นว่าง)
+const data = club.data as typeof club.data & { objective?: unknown[]; members?: string | null; logo?: unknown };
+// โลโก้ชมรม (ช่อง "โลโก้ชมรม" ในหลังบ้าน) แสดงข้างชื่อชมรม
+const clubLogo = data.logo ?? null;
+const members = String(data.members ?? "")
+	.split(/\r?\n/)
+	.map((line) => line.trim())
+	.filter(Boolean)
+	.map((line) => {
+		const [name = "", dept = "", role = ""] = line.split(/\s*[|\t]\s*/);
+		return { name, dept, role };
+	})
+	.filter((m) => m.name);
+const objective = Array.isArray(data.objective) && data.objective.length > 0 ? data.objective : null;
+
+const thDate = (d?: Date | null) => (d ? d.toLocaleDateString("th-TH", { dateStyle: "long", timeZone: "Asia/Bangkok" }) : "");
+const { siteTitle } = resolveBlogSiteIdentity(await getSiteSettings());
+---
+
+<Base title={`${club.data.title} | ${siteTitle}`} description={club.data.description ?? undefined}>
+	<section class="band page">
+		<div class="frame">
+			<nav class="crumbs" aria-label="ตำแหน่ง">
+				<a href="/pages/clubs">ชมรม</a>
+			</nav>
+
+			<nav class="club-tabs" aria-label="เลือกชมรม">
+				{
+					all.entries.map((c) => (
+						<a href={`/clubs/${c.id}`} class:list={["club-tab", { "is-active": c.id === club.id }]} aria-current={c.id === club.id ? "page" : undefined}>
+							{c.data.title}
+						</a>
+					))
+				}
+			</nav>
+
+			<header class="club-head">
+				{club.data.cover && (
+					<div class="club-head__cover">
+						<Image image={club.data.cover} sizes="(min-width: 1000px) 960px, 100vw" priority />
+					</div>
+				)}
+				<div class="club-head__row">
+					{clubLogo && (
+						<span class="club-head__logo">
+							<Image image={clubLogo as never} sizes="120px" />
+						</span>
+					)}
+					<div>
+						<h1 class="club-head__title" {...club.edit.title}>{club.data.title}</h1>
+						{club.data.description && <p class="club-head__desc" {...club.edit.description}>{club.data.description}</p>}
+					</div>
+				</div>
+			</header>
+
+			{
+				(objective || members.length > 0) && (
+					<div class="club-info">
+						{objective && (
+							<section class="club-box">
+								<h2 class="club-box__title">วัตถุประสงค์ของชมรม</h2>
+								<div class="prose" {...club.edit.objective}>
+									<PortableText value={objective as never} />
+								</div>
+							</section>
+						)}
+						{members.length > 0 && (
+							<section class="club-box">
+								<h2 class="club-box__title">
+									รายชื่อสมาชิก <span class="club-box__count">{members.length.toLocaleString("th-TH")} คน</span>
+								</h2>
+								<div class="club-members-wrap">
+									<table class="club-members">
+										<thead>
+											<tr>
+												<th scope="col">ลำดับ</th>
+												<th scope="col">ชื่อ-สกุล</th>
+												<th scope="col">สังกัด</th>
+												<th scope="col">ตำแหน่ง</th>
+											</tr>
+										</thead>
+										<tbody>
+											{members.map((m, i) => (
+												<tr>
+													<td>{(i + 1).toLocaleString("th-TH")}</td>
+													<td>{m.name}</td>
+													<td>{m.dept || "–"}</td>
+													<td>{m.role || "–"}</td>
+												</tr>
+											))}
+										</tbody>
+									</table>
+								</div>
+							</section>
+						)}
+					</div>
+				)
+			}
+
+			<h2 class="club-feed__title">ข่าวประชาสัมพันธ์ของชมรม</h2>
+			{
+				posts.length === 0 ? (
+					<p class="club-feed__empty">ยังไม่มีข่าวของชมรมนี้</p>
+				) : (
+					<div class="club-feed">
+						{posts.map((p) => (
+							<article class="club-post">
+								<header>
+									<time class="club-post__date">{thDate(p.data.publishedAt)}</time>
+									<h3 class="club-post__title" {...p.edit.title}>{p.data.title}</h3>
+								</header>
+								{p.data.image && (
+									<div class="club-post__image">
+										<Image image={p.data.image as never} sizes="(min-width: 800px) 720px, 100vw" />
+									</div>
+								)}
+								{p.data.content && (
+									<div class="prose club-post__body" {...p.edit.content}>
+										<PortableText value={p.data.content as never} />
+									</div>
+								)}
+							</article>
+						))}
+					</div>
+				)
+			}
+		</div>
+	</section>
+</Base>
+
+<style>
+	.page {
+		padding-block: clamp(2rem, 1.5rem + 3vw, 4rem) clamp(4rem, 3rem + 4vw, 7rem);
+	}
+
+	.crumbs {
+		margin-bottom: var(--spacing-4);
+		font-size: var(--font-size-sm);
+	}
+
+	.crumbs a {
+		color: var(--color-text-secondary);
+	}
+
+	.club-tabs {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--spacing-2);
+		margin-bottom: var(--spacing-6);
+	}
+
+	.club-tab {
+		padding: var(--spacing-2) var(--spacing-4);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-full);
+		background: var(--color-surface);
+		font-weight: 600;
+		color: var(--color-text);
+		text-decoration: none;
+	}
+
+	.club-tab:hover {
+		border-color: var(--color-navy);
+	}
+
+	.club-tab.is-active {
+		border-color: var(--color-navy);
+		background: var(--color-navy);
+		color: #fff;
+	}
+
+	.club-head {
+		max-width: 960px;
+		margin-bottom: var(--spacing-8);
+	}
+
+	.club-head__cover {
+		overflow: hidden;
+		margin-bottom: var(--spacing-5);
+		border-radius: var(--radius-xl);
+	}
+
+	.club-head__cover :global(img) {
+		width: 100%;
+		max-height: 420px;
+		object-fit: cover;
+	}
+
+	/* โลโก้ชมรมข้างชื่อ */
+	.club-head__row {
+		display: flex;
+		align-items: center;
+		gap: clamp(1rem, 0.6rem + 1.5vw, 1.75rem);
+	}
+
+	.club-head__logo {
+		flex: none;
+		display: grid;
+		place-items: center;
+		width: clamp(84px, 60px + 5vw, 128px);
+		aspect-ratio: 1;
+		padding: 8px;
+		border-radius: var(--radius-xl);
+		background: var(--color-surface);
+		box-shadow: var(--shadow-card);
+	}
+
+	.club-head__logo :global(img) {
+		width: 100%;
+		height: 100%;
+		object-fit: contain;
+		border-radius: var(--radius-lg);
+	}
+
+	.club-head__title {
+		font-size: var(--font-size-display);
+		line-height: 1.1;
+	}
+
+	.club-head__desc {
+		margin-top: var(--spacing-3);
+		font-size: var(--font-size-lg);
+		color: var(--color-text-secondary);
+	}
+
+	/* วัตถุประสงค์ + รายชื่อสมาชิก */
+	.club-info {
+		display: grid;
+		gap: var(--spacing-5);
+		margin-bottom: var(--spacing-10);
+	}
+
+	.club-box {
+		padding: clamp(1.25rem, 1rem + 1vw, 2rem);
+		border-radius: var(--radius-xl);
+		background: var(--color-surface);
+		box-shadow: var(--shadow-card);
+	}
+
+	.club-box__title {
+		position: relative;
+		display: flex;
+		align-items: baseline;
+		gap: var(--spacing-3);
+		margin: 0 0 var(--spacing-4);
+		padding-inline-start: var(--spacing-4);
+		font-size: var(--font-size-xl);
+		font-weight: 700;
+		color: var(--color-navy);
+	}
+
+	.club-box__title::before {
+		content: "";
+		position: absolute;
+		inset-inline-start: 0;
+		top: 0.15em;
+		bottom: 0.15em;
+		width: 4px;
+		border-radius: 2px;
+		background: var(--color-gold);
+	}
+
+	.club-box__count {
+		font-size: var(--font-size-sm);
+		font-weight: 500;
+		color: var(--color-text-secondary);
+	}
+
+	.club-members-wrap {
+		overflow-x: auto;
+	}
+
+	.club-members {
+		width: 100%;
+		min-width: 520px;
+		border-collapse: collapse;
+	}
+
+	.club-members th,
+	.club-members td {
+		padding: var(--spacing-3) var(--spacing-3);
+		border-bottom: 1px solid var(--color-border);
+		text-align: left;
+		vertical-align: top;
+	}
+
+	.club-members th {
+		background: var(--color-fill);
+		font-size: var(--font-size-sm);
+		font-weight: 700;
+		color: var(--color-navy);
+	}
+
+	.club-members td:first-child,
+	.club-members th:first-child {
+		width: 4.5rem;
+		text-align: center;
+		color: var(--color-text-secondary);
+	}
+
+	.club-members tbody tr:hover {
+		background: var(--color-fill);
+	}
+
+	.club-feed__title {
+		position: relative;
+		margin-bottom: var(--spacing-5);
+		padding-inline-start: var(--spacing-4);
+		font-size: var(--font-size-2xl);
+		color: var(--color-navy);
+	}
+
+	.club-feed__title::before {
+		content: "";
+		position: absolute;
+		inset-inline-start: 0;
+		top: 0.15em;
+		bottom: 0.15em;
+		width: 4px;
+		border-radius: 2px;
+		background: var(--color-gold);
+	}
+
+	.club-feed__empty {
+		color: var(--color-text-secondary);
+	}
+
+	.club-feed {
+		display: grid;
+		gap: var(--spacing-6);
+		max-width: 760px;
+	}
+
+	.club-post {
+		padding: clamp(1.25rem, 1rem + 1vw, 2rem);
+		border-radius: var(--radius-xl);
+		background: var(--color-surface);
+		box-shadow: var(--shadow-card);
+	}
+
+	.club-post__date {
+		font-family: var(--font-mono);
+		font-size: var(--font-size-sm);
+		color: var(--color-text-secondary);
+	}
+
+	.club-post__title {
+		margin: var(--spacing-1) 0 var(--spacing-4);
+		font-size: var(--font-size-xl);
+	}
+
+	.club-post__image {
+		overflow: hidden;
+		margin-bottom: var(--spacing-4);
+		border-radius: var(--radius-lg);
+	}
+
+	.club-post__image :global(img) {
+		width: 100%;
+		height: auto;
+	}
+</style>

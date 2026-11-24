@@ -1,0 +1,540 @@
+{
+  "collections": [
+    {
+      "slug": "benefits",
+      "label": "สิทธิประโยชน์",
+      "labelSingular": "สิทธิประโยชน์",
+      "description": "แต่ละรายการแสดงในหน้า \"สิทธิประโยชน์\" เรียงตามลำดับ",
+      "supports": [
+        "drafts",
+        "revisions"
+      ],
+      "hidden": false,
+      "fields": [
+        {
+          "slug": "title",
+          "label": "ชื่อสิทธิประโยชน์",
+          "type": "string",
+          "required": true,
+          "unique": false
+        },
+        {
+          "slug": "seq",
+          "label": "ลำดับ (น้อยแสดงก่อน)",
+          "type": "integer",
+          "required": false,
+          "unique": false
+        },
+        {
+          "slug": "amount",
+          "label": "วงเงิน / อัตราที่ได้รับ (เช่น ไม่เกิน 5,000 บาท/ปี)",
+          "type": "string",
+          "required": false,
+          "unique": false
+        },
+        {
+          "slug": "summary",
+          "label": "สรุปสั้น (ใครได้รับ ได้อะไร)",
+          "type": "text",
+          "required": false,
+          "unique": false
+        },
+        {
+          "slug": "content",
+          "label": "รายละเอียด (คุณสมบัติ เอกสาร วิธียื่นขอ)",
+          "type": "portableText",
+          "required": false,
+          "unique": false
+        },
+        {
+          "slug": "attachment",
+          "label": "แบบฟอร์ม / ไฟล์แนบ (ถ้ามี)",
+          "type": "file",
+          "required": false,
+          "unique": false,
+          "validation": {
+            "allowedMimeTypes": [
+              "application/pdf",
+              "image/jpeg",
+              "image/png"
+            ]
+          }
+        },
+        {
+          "slug": "category",
+          "label": "หมวด (รายการที่หมวดเดียวกันแสดงรวมกัน)",
+          "type": "string",
+          "required": false,
+          "unique": false
+        },
+        {
+          "slug": "deadline_90",
+          "label": "ต้องยื่นคำขอภายใน 90 วันนับแต่วันที่มีเหตุ",
+          "type": "boolean",
+          "required": false,
+          "unique": false
+        }
+      ]
+    },
+    {
+      "slug": "club_posts",
+      "label": "ข่าวชมรม",
+      "labelSingular": "ข่าวชมรม",
+      "description": "ข่าวประชาสัมพันธ์ของแต่ละชมรม เลือกชมรมแล้วใส่รูป ลิงก์ หรือข้อความได้",
+      "supports": [
+        "drafts",
+        "revisions"
+      ],
+      "hidden": false,
+      "fields": [
+        {
+          "slug": "title",
+          "label": "หัวข้อข่าว",
+          "type": "string",
+          "required": true,
+          "unique": false
+        },
+        {
+          "slug": "club",
+          "label": "ชมรม",
+          "type": "reference",
+          "required": true,
+          "unique": false,
+          "validation": {
+            "targetCollection": "clubs",
+            "relation": "club_posts_club",
+            "relationSide": "parent"
+          }
+        },
+        {
+          "slug": "image",
+          "label": "รูปภาพหลัก (ถ้ามี)",
+          "type": "image",
+          "required": false,
+          "unique": false,
+          "validation": {
+            "allowedMimeTypes": [
+              "image/jpeg",
+              "image/png"
+            ]
+          }
+        },
+        {
+          "slug": "content",
+          "label": "เนื้อหา (ใส่รูป ลิงก์ ข้อความได้)",
+          "type": "portableText",
+          "required": false,
+          "unique": false
+        }
+      ]
+    },
+    {
+      "slug": "clubs",
+      "label": "ชมรม",
+      "labelSingular": "ชมรม",
+      "description": "แต่ละชมรมมีหน้าของตัวเองที่ /clubs/ชื่อ แสดงข่าวของชมรมเรียงจากใหม่ไปเก่า",
+      "supports": [
+        "drafts",
+        "revisions"
+      ],
+      "hidden": false,
+      "fields": [
+        {
+          "slug": "title",
+          "label": "ชื่อชมรม",
+          "type": "string",
+          "required": true,
+          "unique": false
+        },
+        {
+          "slug": "seq",
+          "label": "ลำดับ (น้อยแสดงก่อน)",
+          "type": "integer",
+          "required": false,
+          "unique": false
+        },
+        {
+          "slug": "cover",
+          "label": "รูปปก",
+          "type": "image",
+          "required": false,
+          "unique": false,
+          "validation": {
+            "allowedMimeTypes": [
+              "image/jpeg",
+              "image/png"
+            ]
+          }
+        },
+        {
+          "slug": "description",
+          "label": "คำอธิบายสั้น",
+          "type": "text",
+          "required": false,
+          "unique": false
+        },
+        {
+          "slug": "posts",
+          "label": "ข่าวของชมรม",
+          "type": "reference",
+          "required": false,
+          "unique": false,
+          "validation": {
+            "relation": "club_posts_club",
+            "relationSide": "child",
+            "targetCollection": "club_posts"
+          }
+        }
+      ]
+    },
+    {
+      "slug": "financial_reports",
+      "label": "รายงานฐานะการเงิน",
+      "labelSingular": "รายงานฐานะการเงิน",
+      "description": "รายงานที่แสดงในหน้า \"รายงานฐานะการเงิน\" เรียงจากวันที่รายงานล่าสุด แนบไฟล์ PDF แล้วสมาชิกกดอ่านบนเว็บได้ทันที",
+      "supports": [
+        "drafts",
+        "revisions",
+        "search"
+      ],
+      "hidden": false,
+      "fields": [
+        {
+          "slug": "title",
+          "label": "ชื่อรายงาน",
+          "type": "string",
+          "required": true,
+          "unique": false
+        },
+        {
+          "slug": "period",
+          "label": "งวด / ปีงบประมาณ (เช่น ไตรมาส 1 ปีงบประมาณ 2569)",
+          "type": "string",
+          "required": false,
+          "unique": false
+        },
+        {
+          "slug": "report_date",
+          "label": "ณ วันที่ (ใช้เรียงลำดับ ล่าสุดแสดงก่อน)",
+          "type": "datetime",
+          "required": false,
+          "unique": false
+        },
+        {
+          "slug": "summary",
+          "label": "สรุปสั้น (ถ้ามี)",
+          "type": "text",
+          "required": false,
+          "unique": false
+        },
+        {
+          "slug": "content",
+          "label": "รายละเอียดเพิ่มเติม (ข้อความ ตาราง)",
+          "type": "portableText",
+          "required": false,
+          "unique": false
+        },
+        {
+          "slug": "attachment",
+          "label": "ไฟล์รายงาน (PDF)",
+          "type": "file",
+          "required": false,
+          "unique": false
+        }
+      ]
+    },
+    {
+      "slug": "legacy_products",
+      "label": "สินค้าสวัสดิการเดิม (หน้าอื่นๆ)",
+      "labelSingular": "สินค้าสวัสดิการเดิม",
+      "description": "สินค้าที่แสดงในหน้า \"อื่นๆ\" สั่งซื้อผ่าน LINE / โทรศัพท์ ไม่ผ่านตะกร้าร้านค้า",
+      "supports": [
+        "drafts",
+        "revisions",
+        "search"
+      ],
+      "hidden": false,
+      "fields": [
+        {
+          "slug": "title",
+          "label": "ชื่อสินค้า",
+          "type": "string",
+          "required": true,
+          "unique": false
+        },
+        {
+          "slug": "seq",
+          "label": "ลำดับ (น้อยแสดงก่อน)",
+          "type": "integer",
+          "required": false,
+          "unique": false
+        },
+        {
+          "slug": "image",
+          "label": "รูปสินค้า",
+          "type": "image",
+          "required": false,
+          "unique": false,
+          "validation": {
+            "allowedMimeTypes": [
+              "image/jpeg",
+              "image/png"
+            ]
+          }
+        },
+        {
+          "slug": "price",
+          "label": "ราคา (บาท)",
+          "type": "number",
+          "required": false,
+          "unique": false
+        },
+        {
+          "slug": "unit",
+          "label": "หน่วยนับ",
+          "type": "string",
+          "required": false,
+          "unique": false
+        },
+        {
+          "slug": "sku",
+          "label": "รหัสสินค้า",
+          "type": "string",
+          "required": false,
+          "unique": false
+        },
+        {
+          "slug": "description",
+          "label": "คำอธิบายสั้น",
+          "type": "text",
+          "required": false,
+          "unique": false
+        },
+        {
+          "slug": "content",
+          "label": "รายละเอียดเพิ่มเติม (ข้อความ รูป ตาราง)",
+          "type": "portableText",
+          "required": false,
+          "unique": false
+        }
+      ]
+    },
+    {
+      "slug": "pages",
+      "label": "Pages",
+      "labelSingular": "Page",
+      "supports": [
+        "drafts",
+        "revisions",
+        "preview",
+        "search",
+        "seo"
+      ],
+      "hidden": false,
+      "fields": [
+        {
+          "slug": "title",
+          "label": "Title",
+          "type": "string",
+          "required": true,
+          "unique": false
+        },
+        {
+          "slug": "content",
+          "label": "Content",
+          "type": "portableText",
+          "required": false,
+          "unique": false
+        },
+        {
+          "slug": "cover",
+          "label": "รูปประกอบท้ายหน้า (ถ้ามี)",
+          "type": "image",
+          "required": false,
+          "unique": false,
+          "validation": {
+            "allowedMimeTypes": [
+              "image/jpeg",
+              "image/png"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "slug": "posts",
+      "label": "Posts",
+      "labelSingular": "Post",
+      "supports": [
+        "drafts",
+        "revisions",
+        "preview",
+        "scheduling",
+        "search",
+        "seo"
+      ],
+      "hidden": false,
+      "fields": [
+        {
+          "slug": "title",
+          "label": "Title",
+          "type": "string",
+          "required": true,
+          "unique": false
+        },
+        {
+          "slug": "featured_image",
+          "label": "Featured Image",
+          "type": "image",
+          "required": false,
+          "unique": false,
+          "validation": {
+            "allowedMimeTypes": [
+              "image/jpeg",
+              "image/png"
+            ]
+          }
+        },
+        {
+          "slug": "content",
+          "label": "Content",
+          "type": "portableText",
+          "required": false,
+          "unique": false
+        },
+        {
+          "slug": "excerpt",
+          "label": "Excerpt",
+          "type": "text",
+          "required": false,
+          "unique": false
+        }
+      ]
+    },
+    {
+      "slug": "products",
+      "label": "สินค้าร้านค้าสวัสดิการ",
+      "labelSingular": "สินค้าร้านค้าสวัสดิการ",
+      "description": "สินค้าร้านสวัสดิการ",
+      "supports": [
+        "drafts",
+        "revisions",
+        "search"
+      ],
+      "hidden": false,
+      "fields": [
+        {
+          "slug": "title",
+          "label": "ชื่อสินค้า",
+          "type": "string",
+          "required": true,
+          "unique": false
+        },
+        {
+          "slug": "image",
+          "label": "รูปสินค้า",
+          "type": "image",
+          "required": false,
+          "unique": false,
+          "validation": {
+            "allowedMimeTypes": [
+              "image/jpeg",
+              "image/png"
+            ]
+          }
+        },
+        {
+          "slug": "price",
+          "label": "ราคา (บาท)",
+          "type": "number",
+          "required": true,
+          "unique": false
+        },
+        {
+          "slug": "unit",
+          "label": "หน่วยนับ",
+          "type": "string",
+          "required": false,
+          "unique": false
+        },
+        {
+          "slug": "stock",
+          "label": "จำนวนคงเหลือ",
+          "type": "integer",
+          "required": false,
+          "unique": false
+        },
+        {
+          "slug": "category",
+          "label": "หมวดหมู่",
+          "type": "string",
+          "required": false,
+          "unique": false
+        },
+        {
+          "slug": "sku",
+          "label": "รหัสสินค้า",
+          "type": "string",
+          "required": false,
+          "unique": false
+        },
+        {
+          "slug": "description",
+          "label": "รายละเอียด",
+          "type": "text",
+          "required": false,
+          "unique": false
+        }
+      ]
+    },
+    {
+      "slug": "regulations",
+      "label": "ระเบียบและหลักเกณฑ์",
+      "labelSingular": "ระเบียบ/หลักเกณฑ์",
+      "description": "แต่ละข้อแสดงเรียงกันในหน้า \"ระเบียบและหลักเกณฑ์\" ตามลำดับ",
+      "supports": [
+        "drafts",
+        "revisions"
+      ],
+      "hidden": false,
+      "fields": [
+        {
+          "slug": "title",
+          "label": "ชื่อระเบียบ / หลักเกณฑ์",
+          "type": "string",
+          "required": true,
+          "unique": false
+        },
+        {
+          "slug": "seq",
+          "label": "ลำดับ (น้อยแสดงก่อน)",
+          "type": "integer",
+          "required": false,
+          "unique": false
+        },
+        {
+          "slug": "content",
+          "label": "รายละเอียด",
+          "type": "portableText",
+          "required": false,
+          "unique": false
+        },
+        {
+          "slug": "attachment",
+          "label": "ไฟล์แนบ (ถ้ามี)",
+          "type": "file",
+          "required": false,
+          "unique": false,
+          "validation": {
+            "allowedMimeTypes": [
+              "application/pdf",
+              "image/jpeg",
+              "image/png"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "version": "64a281a6ca34fff8"
+}

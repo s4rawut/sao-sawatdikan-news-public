@@ -1,0 +1,230 @@
+---
+import type { ContentEntry, InferCollectionData } from "emdash";
+import { Image } from "emdash/ui";
+import NewsCover from "./NewsCover.astro";
+import { formatDate } from "../utils/locale";
+
+interface Props {
+	posts: ContentEntry<InferCollectionData<"posts">>[];
+	title?: string;
+}
+
+const { posts, title = "ข่าวประชาสัมพันธ์" } = Astro.props;
+---
+
+<section class="band section showcase" aria-labelledby="showcase-title">
+	<div class="frame">
+		<div class="section-head">
+			<h2 id="showcase-title" class="showcase__title">{title}</h2>
+			<a href="/posts" class="arrow-link">
+				ดูทั้งหมด
+				<svg
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="1.75"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+					aria-hidden="true"
+				>
+					<path d="M5 12h14"></path>
+					<path d="m12 5 7 7-7 7"></path>
+				</svg>
+			</a>
+		</div>
+
+		<div class="showcase__panel" data-showcase>
+			<a href={`/posts/${posts[0]?.id}`} class="showcase__media" tabindex="-1" aria-hidden="true" data-showcase-link>
+				{
+					posts.map((post, i) => (
+						<div class:list={["showcase__image", { "is-active": i === 0 }]} data-index={i}>
+							{post.data.featured_image ? (
+								<Image
+									image={post.data.featured_image}
+									sizes="(min-width: 900px) 640px, 100vw"
+									priority={i === 0}
+								/>
+							) : (
+								<NewsCover
+									title={post.data.title || "ไม่มีชื่อเรื่อง"}
+									seed={post.id}
+									date={post.data.publishedAt ?? null}
+								/>
+							)}
+						</div>
+					))
+				}
+			</a>
+
+			<ol class="showcase__list">
+				{
+					posts.map((post, i) => {
+						const publishedAt = post.data.publishedAt ?? null;
+						return (
+							<li>
+								<a
+									href={`/posts/${post.id}`}
+									class:list={["showcase__item", { "is-active": i === 0 }]}
+									data-index={i}
+								>
+									{publishedAt && (
+										<time class="showcase__date" datetime={publishedAt.toISOString()}>
+											{formatDate(publishedAt, "long")}
+										</time>
+									)}
+									<span class="showcase__headline">{post.data.title || "ไม่มีชื่อเรื่อง"}</span>
+									{post.data.excerpt && (
+										<span class="showcase__excerpt">{post.data.excerpt}</span>
+									)}
+								</a>
+							</li>
+						);
+					})
+				}
+			</ol>
+		</div>
+	</div>
+</section>
+
+<script>
+	// Pointing at (or tabbing to) a headline swaps the picture on the left
+	for (const panel of document.querySelectorAll<HTMLElement>("[data-showcase]")) {
+		const images = panel.querySelectorAll<HTMLElement>(".showcase__image");
+		const items = panel.querySelectorAll<HTMLAnchorElement>(".showcase__item");
+		const link = panel.querySelector<HTMLAnchorElement>("[data-showcase-link]");
+		const show = (item: HTMLAnchorElement) => {
+			const index = item.dataset.index;
+			images.forEach((img) => img.classList.toggle("is-active", img.dataset.index === index));
+			items.forEach((el) => el.classList.toggle("is-active", el === item));
+			if (link) link.href = item.href;
+		};
+		items.forEach((item) => {
+			item.addEventListener("mouseenter", () => show(item));
+			item.addEventListener("focus", () => show(item));
+		});
+	}
+</script>
+
+<style>
+	.showcase__title {
+		position: relative;
+		padding-inline-start: var(--spacing-4);
+		font-size: var(--font-size-3xl);
+		font-weight: 700;
+		color: var(--color-navy);
+	}
+
+	/* Gold bar in front of the heading */
+	.showcase__title::before {
+		content: "";
+		position: absolute;
+		inset-inline-start: 0;
+		top: 0.2em;
+		bottom: 0.2em;
+		width: 5px;
+		border-radius: 3px;
+		background: var(--color-gold);
+	}
+
+	.showcase__panel {
+		display: grid;
+		grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+		gap: var(--spacing-6);
+		padding: var(--card-padding);
+		border-radius: var(--radius-xl);
+		background: var(--color-surface);
+		box-shadow: var(--shadow-card);
+	}
+
+	/* The picture stretches to the height of the list beside it */
+	.showcase__media {
+		position: relative;
+		display: block;
+		min-height: 320px;
+		overflow: hidden;
+		border-radius: var(--radius-lg);
+		background: var(--color-fill);
+	}
+
+	.showcase__image {
+		position: absolute;
+		inset: 0;
+		opacity: 0;
+		transition: opacity 300ms var(--ease-out);
+	}
+
+	.showcase__image.is-active {
+		opacity: 1;
+	}
+
+	.showcase__image :global(img) {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+
+	.showcase__list {
+		display: grid;
+		align-content: start;
+		gap: 2px;
+		margin: 0;
+		padding: var(--spacing-2) var(--spacing-2) var(--spacing-2) 0;
+		list-style: none;
+	}
+
+	.showcase__item {
+		display: grid;
+		gap: 2px;
+		padding: var(--spacing-3) var(--spacing-5);
+		border-inline-start: 4px solid transparent;
+		border-radius: var(--radius);
+		color: var(--color-text);
+		text-decoration: none;
+		transition:
+			background-color var(--transition-fast),
+			border-color var(--transition-fast);
+	}
+
+	.showcase__item:hover,
+	.showcase__item.is-active {
+		background: var(--color-navy-soft);
+		border-inline-start-color: var(--color-gold);
+	}
+
+	.showcase__date {
+		font-size: var(--font-size-xs);
+		color: var(--color-muted);
+	}
+
+	.showcase__headline {
+		font-size: var(--font-size-base);
+		font-weight: 600;
+		line-height: 1.45;
+		color: var(--color-navy);
+	}
+
+	.showcase__excerpt {
+		display: -webkit-box;
+		overflow: hidden;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 1;
+		font-size: var(--font-size-sm);
+		line-height: 1.6;
+		color: var(--color-text-secondary);
+	}
+
+	@media (max-width: 820px) {
+		.showcase__panel {
+			grid-template-columns: minmax(0, 1fr);
+		}
+
+		.showcase__media {
+			min-height: 0;
+			aspect-ratio: 16 / 10;
+		}
+
+		.showcase__list {
+			padding: 0 0 var(--spacing-2);
+		}
+	}
+</style>

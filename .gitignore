@@ -1,0 +1,40 @@
+node_modules
+dist
+.astro
+.emdash/migrations.json
+uploads
+data.db
+data.db-*
+.wrangler
+
+# Environment / Wrangler secrets
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+
+# Self-hosted data (database + uploads) — never commit
+/data
+/exports
+
+# Local / editor files
+.DS_Store
+.claude/
+/backups
+/prototype
+
+# Developer-only files for the test copy (not part of the internal deployment)
+wrangler.jsonc
+worker-configuration.d.ts
+src/worker.ts
+src/storage/media-storage.js
+scripts/deploy-test.mjs
+scripts/migrate-from-cloudflare.mjs
+docs/ARCHITECTURE.md
+docs/SECURITY-AUDIT.md
+.agents/
+.cursor/
+.mcp.json
+.vscode/
+AGENTS.md

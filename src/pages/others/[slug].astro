@@ -1,0 +1,178 @@
+---
+// หน้ารายละเอียด "สินค้าสวัสดิการเดิม" (collection legacy_products) ที่แสดงในหน้า "อื่นๆ"
+// ไม่ขายผ่านตะกร้า: แสดงช่องทางสั่งซื้อ LINE / โทรศัพท์ ของสินค้าชิ้นนี้ (หรือของร้าน ตั้งใน shop-admin → ตั้งค่า)
+import { getEmDashEntry, decodeSlug } from "emdash";
+import { Image, PortableText } from "emdash/ui";
+import Base from "../../layouts/Base.astro";
+import OrderContact from "../../components/OrderContact.astro";
+import { baht } from "../../utils/shop";
+import { getProductContact } from "../../utils/others-contact";
+import "../../styles/prose.css";
+
+const slug = decodeSlug(Astro.params.slug);
+if (!slug) return Astro.rewrite("/404");
+
+const { entry: item, cacheHint } = await getEmDashEntry("legacy_products", slug);
+if (!item) return Astro.rewrite("/404");
+if (Astro.cache?.enabled) Astro.cache.set(cacheHint);
+
+const p = item.data;
+// ช่องทางสั่งซื้อของสินค้าชิ้นนี้ (ถ้าเว้นว่าง ใช้ LINE/เบอร์กลางที่ตั้งในหลังบ้านร้าน)
+const contact = await getProductContact(p as { contact_line?: string; contact_phone?: string; contact_name?: string });
+---
+
+<Base title={p.title} description={p.description} content={{ collection: "legacy_products", id: p.id, slug }}>
+	<section class="band section">
+		<div class="frame">
+			<nav class="crumbs" aria-label="ตำแหน่ง">
+				<a href="/pages/others">อื่นๆ</a>
+				<span aria-hidden="true">/</span>
+				<span>สินค้าอื่นๆ</span>
+			</nav>
+
+			<div class="item">
+				<div class="item__media">
+					{
+						p.image ? (
+							<Image image={p.image} sizes="(min-width: 900px) 560px, 100vw" priority />
+						) : (
+							<div class="item__placeholder">
+								<img src="/logo.png" alt="" />
+							</div>
+						)
+					}
+				</div>
+
+				<div class="item__body">
+					<h1 class="item__title" {...item.edit.title}>{p.title}</h1>
+					{p.sku && <p class="item__sku">รหัสสินค้า {p.sku}</p>}
+					{p.price != null && (
+						<p class="item__price">
+							{baht(p.price)}
+							{p.unit && <span class="item__unit"> / {p.unit}</span>}
+						</p>
+					)}
+					<OrderContact contact={contact} product={p.title} />
+					{p.description && <p class="item__desc" {...item.edit.description}>{p.description}</p>}
+				</div>
+			</div>
+
+			{
+				p.content && p.content.length > 0 && (
+					<div class="details">
+						<h2 class="details__title">รายละเอียดสินค้า</h2>
+						<div class="prose" {...item.edit.content}>
+							<PortableText value={p.content} />
+						</div>
+					</div>
+				)
+			}
+		</div>
+	</section>
+</Base>
+
+<style>
+	.crumbs {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--spacing-2);
+		margin-bottom: var(--spacing-6);
+		font-size: var(--font-size-sm);
+		color: var(--color-muted);
+	}
+
+	.item {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+		gap: var(--spacing-10);
+		align-items: start;
+	}
+
+	.item__media {
+		overflow: hidden;
+		aspect-ratio: 1;
+		padding: var(--card-padding);
+		border-radius: var(--radius-xl);
+		background: var(--color-surface);
+		box-shadow: var(--shadow-card);
+	}
+
+	.item__media :global(img) {
+		width: 100%;
+		height: 100%;
+		border-radius: var(--radius-lg);
+		object-fit: cover;
+	}
+
+	.item__placeholder {
+		display: grid;
+		place-items: center;
+		height: 100%;
+		border-radius: var(--radius-lg);
+		background: linear-gradient(120deg, #0b1f47, #1d4185);
+	}
+
+	.item__placeholder img {
+		width: 35%;
+		height: auto;
+		opacity: 0.5;
+	}
+
+	.item__body {
+		display: grid;
+		gap: var(--spacing-3);
+	}
+
+	.item__title {
+		font-size: var(--font-size-3xl);
+		font-weight: 700;
+		line-height: 1.35;
+		color: var(--color-navy);
+	}
+
+	.item__sku {
+		font-size: var(--font-size-sm);
+		color: var(--color-muted);
+	}
+
+	.item__price {
+		font-size: var(--font-size-3xl);
+		font-weight: 700;
+		color: var(--color-gold-text);
+	}
+
+	.item__unit {
+		font-size: var(--font-size-base);
+		font-weight: 400;
+		color: var(--color-muted);
+	}
+
+	.item__desc {
+		padding-top: var(--spacing-4);
+		border-top: 1px solid var(--color-border);
+		line-height: 1.8;
+		white-space: pre-line;
+	}
+
+	.details {
+		max-width: var(--content-width);
+		margin-top: var(--spacing-10);
+		padding: clamp(1.25rem, 1rem + 1vw, 2rem);
+		border-radius: var(--radius-xl);
+		background: var(--color-surface);
+		box-shadow: var(--shadow-card);
+	}
+
+	.details__title {
+		margin: 0 0 var(--spacing-4);
+		font-size: var(--font-size-xl);
+		color: var(--color-navy);
+	}
+
+	@media (max-width: 800px) {
+		.item {
+			grid-template-columns: minmax(0, 1fr);
+			gap: var(--spacing-6);
+		}
+	}
+</style>

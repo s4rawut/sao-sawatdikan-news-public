@@ -1,0 +1,25 @@
+---
+import { Font } from "astro:assets";
+---
+
+<!doctype html>
+<html lang="th">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="robots" content="noindex" />
+		<meta name="theme-color" content="#0f2a5c" />
+		<title>หลังบ้านร้านค้า | สวัสดิการ สตง.</title>
+		<link rel="icon" type="image/png" href="/favicon.png" />
+		<Font cssVariable="--font-body" preload />
+		<link rel="stylesheet" href="/shop/shop.css" />
+	</head>
+	<body class="shop-app">
+		<div id="root"><div class="spinner"></div></div>
+		<div id="print-area"></div>
+		<script is:inline src="/vendor/lucide-0.460.0.min.js"></script>
+		<script is:inline src="/vendor/xlsx-0.18.5.full.min.js"></script>
+		<script is:inline src="/shop/common.js"></script>
+		<script is:inline src="/shop/admin.js"></script>
+	</body>
+</html>

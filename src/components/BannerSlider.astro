@@ -1,0 +1,355 @@
+---
+/**
+ * Banner slides from the "home_banners" collection (published = shown, sort_order ascending).
+ * A banner with an image shows the image; otherwise it is drawn as a mourning-style text banner
+ * (black field, fine border, black ribbon) from top_line / name_lines / tribute / signed_by.
+ * Several banners slide automatically (pauses on hover/focus, respects reduced motion).
+ */
+import { Image } from "emdash/ui";
+
+export interface BannerEntry {
+	id: string;
+	data: {
+		title?: string;
+		image?: { src?: string; alt?: string } | null;
+		top_line?: string | null;
+		name_lines?: string | null;
+		tribute?: string | null;
+		signed_by?: string | null;
+	};
+}
+interface Props {
+	banners: BannerEntry[];
+	label?: string;
+}
+const { banners, label = "แบนเนอร์" } = Astro.props;
+const lines = (s?: string | null) => String(s ?? "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+// ตัดบรรทัดเฉพาะตรงช่องว่าง ไม่ให้พระนาม/ชื่อหน่วยงานขาดกลางคำ
+const words = (l: string) => l.split(/\s+/).filter(Boolean);
+---
+
+{
+	banners.length > 0 && (
+		<div class="bslider" data-bslider role="region" aria-roledescription="carousel" aria-label={label}>
+			<div class="bslider__track" data-track>
+				{banners.map((b, i) => (
+					<figure
+						class="bslide"
+						role="group"
+						aria-roledescription="slide"
+						aria-label={`${i + 1} จาก ${banners.length}: ${b.data.title ?? ""}`}
+					>
+						{b.data.image?.src ? (
+							<Image image={b.data.image} sizes="(min-width: 1000px) 960px, 100vw" class="bslide__img" />
+						) : (
+							<div class="mourn">
+								<svg class="mourn__ribbon" viewBox="0 0 64 96" aria-hidden="true">
+									<path d="M32 30 L8 92 L22 92 L32 64 L42 92 L56 92 Z" />
+									<circle cx="32" cy="22" r="16" fill="none" stroke-width="9" />
+								</svg>
+								{b.data.top_line && (
+									<p class="mourn__top">
+										{words(b.data.top_line).map((w) => (
+											<><span class="nw">{w}</span>{" "}</>
+										))}
+									</p>
+								)}
+								{lines(b.data.name_lines).length > 0 && (
+									<p class="mourn__name">
+										{lines(b.data.name_lines).map((l) => (
+											<span>
+												{words(l).map((w) => (
+													<><span class="nw">{w}</span>{" "}</>
+												))}
+											</span>
+										))}
+									</p>
+								)}
+								{b.data.tribute && (
+									<p class="mourn__tribute">
+										<span class="mourn__rule" aria-hidden="true" />
+										{b.data.tribute}
+										<span class="mourn__rule" aria-hidden="true" />
+									</p>
+								)}
+								{lines(b.data.signed_by).length > 0 && (
+									<p class="mourn__sign">
+										{lines(b.data.signed_by).map((l) => (
+											<span>
+												{words(l).map((w) => (
+													<><span class="nw">{w}</span>{" "}</>
+												))}
+											</span>
+										))}
+									</p>
+								)}
+							</div>
+						)}
+					</figure>
+				))}
+			</div>
+			{banners.length > 1 && (
+				<>
+					<button type="button" class="bslider__nav bslider__nav--prev" data-prev aria-label="แบนเนอร์ก่อนหน้า">
+						<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+					</button>
+					<button type="button" class="bslider__nav bslider__nav--next" data-next aria-label="แบนเนอร์ถัดไป">
+						<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
+					</button>
+					<div class="bslider__dots">
+						{banners.map((_, i) => (
+							<button type="button" data-dot={i} aria-label={`ไปที่แบนเนอร์ ${i + 1}`} aria-current={i === 0 ? "true" : undefined} />
+						))}
+					</div>
+				</>
+			)}
+		</div>
+	)
+}
+
+<script>
+	for (const root of document.querySelectorAll<HTMLElement>("[data-bslider]")) {
+		const track = root.querySelector<HTMLElement>("[data-track]")!;
+		const slides = [...track.children] as HTMLElement[];
+		const dots = [...root.querySelectorAll<HTMLButtonElement>("[data-dot]")];
+		if (slides.length < 2) continue;
+		let index = 0;
+		const go = (i: number) => {
+			index = (i + slides.length) % slides.length;
+			track.scrollTo({ left: slides[index].offsetLeft, behavior: "smooth" });
+		};
+		track.addEventListener("scroll", () => {
+			const i = Math.round(track.scrollLeft / track.clientWidth);
+			if (i !== index && slides[i]) index = i;
+			dots.forEach((d, n) => d.toggleAttribute("aria-current", n === index));
+		}, { passive: true });
+		root.querySelector("[data-prev]")?.addEventListener("click", () => go(index - 1));
+		root.querySelector("[data-next]")?.addEventListener("click", () => go(index + 1));
+		dots.forEach((d, n) => d.addEventListener("click", () => go(n)));
+		// Auto-advance every 6 s, paused while hovered/focused or when the user prefers less motion
+		const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+		let paused = false;
+		root.addEventListener("pointerenter", () => (paused = true));
+		root.addEventListener("pointerleave", () => (paused = false));
+		root.addEventListener("focusin", () => (paused = true));
+		root.addEventListener("focusout", () => (paused = false));
+		if (!reduce) setInterval(() => { if (!paused && root.offsetParent !== null) go(index + 1); }, 6000);
+	}
+</script>
+
+<style>
+	.bslider {
+		position: relative;
+		container-type: inline-size;
+		border-radius: var(--radius-lg);
+		overflow: hidden;
+		background: #000;
+	}
+
+	.bslider__track {
+		display: flex;
+		overflow-x: auto;
+		scroll-snap-type: x mandatory;
+		scrollbar-width: none;
+	}
+
+	.bslider__track::-webkit-scrollbar {
+		display: none;
+	}
+
+	.bslide {
+		flex: 0 0 100%;
+		margin: 0;
+		scroll-snap-align: start;
+		aspect-ratio: 16 / 9;
+	}
+
+	.bslide :global(.bslide__img),
+	.bslide :global(img) {
+		display: block;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+
+	/* Mourning text banner — black field, silver frame, black ribbon */
+	.mourn {
+		position: relative;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 2.4cqi;
+		height: 100%;
+		padding: 5cqi 7cqi;
+		background: radial-gradient(80% 90% at 50% 40%, #2a2a2a 0%, #0d0d0d 60%, #000 100%);
+		color: #f4f4f4;
+		text-align: center;
+	}
+
+	.mourn::before {
+		content: "";
+		position: absolute;
+		inset: 2.2cqi;
+		border: 1px solid rgb(255 255 255 / 0.35);
+		outline: 1px solid rgb(255 255 255 / 0.12);
+		outline-offset: 0.8cqi;
+		pointer-events: none;
+	}
+
+	.mourn__ribbon {
+		position: absolute;
+		top: 3.4cqi;
+		left: 4cqi;
+		width: 5.5cqi;
+		fill: #000;
+		stroke: #000;
+		filter: drop-shadow(0 0 0.6cqi rgb(255 255 255 / 0.35));
+	}
+
+	.mourn p {
+		max-width: 100%;
+		margin: 0;
+	}
+
+	.nw {
+		white-space: nowrap;
+	}
+
+	.mourn__top {
+		font-size: 4.4cqi;
+		font-weight: 700;
+		letter-spacing: 0.02em;
+	}
+
+	.mourn__name {
+		display: grid;
+		gap: 0.6cqi;
+		font-size: 3.1cqi;
+		font-weight: 600;
+		line-height: 1.45;
+	}
+
+	.mourn__tribute {
+		display: flex;
+		align-items: center;
+		gap: 2cqi;
+		font-size: 2.7cqi;
+		color: #e6e6e6;
+	}
+
+	.mourn__rule {
+		width: 8cqi;
+		height: 1px;
+		background: rgb(255 255 255 / 0.5);
+	}
+
+	.mourn__sign {
+		display: grid;
+		gap: 0.3cqi;
+		font-size: 1.85cqi;
+		line-height: 1.6;
+		color: #cfcfcf;
+	}
+
+	.bslider__nav {
+		position: absolute;
+		top: 50%;
+		display: grid;
+		place-items: center;
+		width: 40px;
+		height: 40px;
+		translate: 0 -50%;
+		border: 0;
+		border-radius: 50%;
+		background: rgb(255 255 255 / 0.18);
+		color: #fff;
+		cursor: pointer;
+	}
+
+	.bslider__nav:hover,
+	.bslider__nav:focus-visible {
+		background: rgb(255 255 255 / 0.32);
+	}
+
+	.bslider__nav svg {
+		width: 22px;
+		height: 22px;
+		fill: none;
+		stroke: currentColor;
+		stroke-width: 2.4;
+		stroke-linecap: round;
+		stroke-linejoin: round;
+	}
+
+	.bslider__nav--prev {
+		left: 10px;
+	}
+
+	.bslider__nav--next {
+		right: 10px;
+	}
+
+	/* Phones: taller text banner, bigger type, swipe/dots instead of arrows (image banners keep 16:9) */
+	@container (max-width: 560px) {
+		.bslide:has(.mourn) {
+			aspect-ratio: 4 / 5;
+		}
+
+		.mourn {
+			gap: 4cqi;
+			padding: 9cqi 8cqi;
+		}
+
+		.mourn__ribbon {
+			width: 9cqi;
+		}
+
+		.mourn__top {
+			font-size: 7.4cqi;
+		}
+
+		.mourn__name {
+			font-size: 5cqi;
+		}
+
+		.mourn__tribute {
+			font-size: 4.6cqi;
+		}
+
+		.mourn__rule {
+			width: 6cqi;
+		}
+
+		.mourn__sign {
+			font-size: 3.5cqi;
+		}
+
+		.bslider__nav {
+			display: none;
+		}
+	}
+
+	.bslider__dots {
+		position: absolute;
+		bottom: 10px;
+		left: 50%;
+		display: flex;
+		gap: 8px;
+		translate: -50% 0;
+	}
+
+	.bslider__dots button {
+		width: 9px;
+		height: 9px;
+		padding: 0;
+		border: 0;
+		border-radius: 50%;
+		background: rgb(255 255 255 / 0.4);
+		cursor: pointer;
+	}
+
+	.bslider__dots button[aria-current] {
+		background: #fff;
+	}
+</style>

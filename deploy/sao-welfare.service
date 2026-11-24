@@ -1,0 +1,23 @@
+# systemd unit — เว็บสวัสดิการ สตง. (Node.js)
+# ติดตั้ง: sudo cp deploy/sao-welfare.service /etc/systemd/system/
+#          sudo systemctl daemon-reload && sudo systemctl enable --now sao-welfare
+# ดู log:  journalctl -u sao-welfare -f
+[Unit]
+Description=SAO Welfare website (EmDash / Astro on Node.js)
+After=network.target
+
+[Service]
+Type=simple
+User=saoweb
+Group=saoweb
+WorkingDirectory=/opt/sao-welfare
+ExecStart=/usr/bin/node --env-file=/opt/sao-welfare/.env /opt/sao-welfare/dist/server/entry.mjs
+Restart=always
+RestartSec=5
+# ต้องมีอย่างน้อยหนึ่ง process ทำงานตลอด (งานตั้งเวลา: ยกเลิกคำสั่งซื้อที่ไม่ชำระ, เผยแพร่ตามเวลา)
+NoNewPrivileges=true
+ProtectSystem=full
+ReadWritePaths=/opt/sao-welfare/data /opt/sao-welfare/backups
+
+[Install]
+WantedBy=multi-user.target
